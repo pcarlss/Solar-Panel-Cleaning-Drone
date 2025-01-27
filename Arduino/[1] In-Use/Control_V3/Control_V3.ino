@@ -9,10 +9,17 @@
 /////////////////////////////////////////////////////////////////////////////
 /////////////////// DEFINITIONS AND VARIABLES ///////////////////////////////
 
-#define INTERVAL_MS_TRANSMISSION 10
-#define LCD_UPDATE_INTERVAL 300
+#define INTERVAL_MS_TRANSMISSION 1
+#define LCD_UPDATE_INTERVAL 100
 #define CE_PIN 6   // CE pin for RF24
 #define CSN_PIN 7  // CSN pin for RF24
+
+unsigned long lastRadioSuccess = 0;
+unsigned long lastUsbSuccess = 0;
+const unsigned long RADIO_TIMEOUT = 500;  // 0.5 seconds
+const unsigned long USB_TIMEOUT = 500;    // 0.5 seconds
+unsigned long timeLCD = 0;
+unsigned long lastLCD = 0;
 
 RF24 radio(CE_PIN, CSN_PIN);
 const byte address[6] = "00001";
@@ -30,11 +37,23 @@ unsigned long lastLcdUpdate = 0;
 bool freezeDisplay = false;
 int scrollPosition = 0;
 
+float servoAngle = 90;
+bool toggleSafety = 0;
+String safety = "ON";
+float lastServoAngle = -1;
+String lastSafety = "";
+bool startButtonPrevState = 0;
+bool syncButtonPrevState = 0;
+bool display = 0;
+
 struct ControllerData {
   int throttle;
   int yaw;
   int pitch;
   int roll;
+  int angle;
+  int safety;
+  bool AUX;
 } ControllerData;
 
 /////////////////////////////////////////////////////////////////////////////
@@ -52,13 +71,15 @@ void setup() {
       ;
   } else Serial.println("USB Host initialization success");
 
+  initializeRadio();
+
   lcd.init();
   lcd.backlight();
   lcd.setCursor(2, 0);
   lcd.print("[SPCD Start]");
   lcd.setCursor(1, 1);
-  lcd.print("Capstone  2024");
-  delay(8000);
+  lcd.print("Capstone  2025");
+  delay(2000);
 }
 
 void initializeRadio() {
@@ -67,19 +88,19 @@ void initializeRadio() {
     Serial.println("Radio not connected. Please check your wiring.");
     lcd.clear();
     lcd.print("Radio Error");
-    delay(2000);
+    delay(1000);
     while (1)
       ;  // Stop the program if the radio is not connected
   } else if (radio.isChipConnected()) {
     lcd.clear();
     lcd.setCursor(1, 0);
     lcd.print("Radio Success");
-    delay(3000);
+    delay(1000);
   }
 
-  radio.setAutoAck(false);         // (true|false)
-  radio.setDataRate(RF24_1MBPS);   // (RF24_250KBPS|RF24_1MBPS|RF24_2MBPS)
-  radio.setPALevel(RF24_PA_HIGH);  // (RF24_PA_MIN|RF24_PA_LOW|RF24_PA_HIGH|RF24_PA_MAX)
+  radio.setAutoAck(false);        // (true|false)
+  radio.setDataRate(RF24_1MBPS);  // (RF24_250KBPS|RF24_1MBPS|RF24_2MBPS)
+  radio.setPALevel(RF24_PA_MIN);  // (RF24_PA_MIN|RF24_PA_LOW|RF24_PA_HIGH|RF24_PA_MAX)
   radio.setPayloadSize(sizeof(ControllerData));
   radio.openWritingPipe(address);
   radio.setChannel(100);
@@ -139,7 +160,7 @@ void loop() {
     switch (usbstate) {
       case USB_DETACHED_SUBSTATE_WAIT_FOR_DEVICE:
         Serial.println("Waiting for device...");
-        scrollString("Waiting for device...");
+        scrollString("   Awaiting RC signal...");
         lcd.setCursor(2, 0);
         lcd.print("Insert USB");
         break;
@@ -154,6 +175,7 @@ void loop() {
         lcd.setCursor(1, 0);
         lcd.print("USB Connected");
         delay(1000);
+        lcd.clear();
         break;
       case USB_ATTACHED_SUBSTATE_GET_DEVICE_DESCRIPTOR_SIZE:
         Serial.println("SOF generation started. Enumerating device...");
@@ -185,12 +207,11 @@ void loop() {
     }
   }
 
-  if (Xbox.XboxOneConnected && !radioInitialized) {
-    initializeRadio();
-  }
+  // if (Xbox.XboxOneConnected && !radioInitialized) {
+  //   initializeRadio();
+  // }
 
   if (Xbox.XboxOneConnected) {
-
     // Define the dead zone threshold
     const int DEAD_ZONE = 7500;
 
@@ -198,22 +219,103 @@ void loop() {
     int yawInput = Xbox.getAnalogHat(LeftHatX);
     int pitchInput = Xbox.getAnalogHat(RightHatY);
     int rollInput = Xbox.getAnalogHat(RightHatX);
+    int leftTrigger = Xbox.getButtonPress(LT);
+    int rightTrigger = Xbox.getButtonPress(RT);
+    int start = Xbox.getButtonPress(START);
+    int RB = Xbox.getButtonPress(R1);
+
+    if (start && !startButtonPrevState) {
+      toggleSafety = !toggleSafety;
+      switch (toggleSafety) {
+        case 0:
+          safety = "ON ";
+          break;
+        default:
+          safety = "OFF";
+          break;
+      }
+    }
+    startButtonPrevState = start;
+
+    if (RB && !syncButtonPrevState) {
+      display = !display;
+    }
+    syncButtonPrevState = RB;
+
+
+    bool leftTriggerActive = false;
+    bool rightTriggerActive = false;
+
+    if (leftTrigger > 600) {  // L2 is pressed
+      if (!leftTriggerActive && servoAngle > 0) {
+        servoAngle -= 0.25;
+        // Serial.print("Angle: ");
+        // Serial.print(int(servoAngle));
+        // Serial.print(" ");
+        leftTriggerActive = true;  // Mark as active
+      }
+    } else {
+      leftTriggerActive = false;  // Reset when trigger is released
+    }
+
+    if (rightTrigger > 600) {  // R2 is pressed
+      if (!rightTriggerActive && servoAngle < 180) {
+        servoAngle += 0.25;
+        // Serial.print("Angle: ");
+        // Serial.print(int(servoAngle));
+        // Serial.print(" ");
+        rightTriggerActive = true;  // Mark as active
+      }
+    } else {
+      rightTriggerActive = false;  // Reset when trigger is released
+    }
 
     ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE) ? 1500 : map(throttleInput, -32767, 32767, 1000, 2000);
     ControllerData.yaw = (abs(yawInput) < DEAD_ZONE) ? 1500 : map(yawInput, -32767, 32767, 1000, 2000);
     ControllerData.pitch = (abs(pitchInput) < DEAD_ZONE) ? 1500 : map(pitchInput, -32767, 32767, 1000, 2000);
     ControllerData.roll = (abs(rollInput) < DEAD_ZONE) ? 1500 : map(rollInput, -32767, 32767, 1000, 2000);
+    ControllerData.safety = toggleSafety;
+    ControllerData.angle = int(servoAngle);
 
-    Serial.print("Throttle: ");
-    Serial.print(ControllerData.throttle);
-    Serial.print(", Yaw: ");
-    Serial.print(ControllerData.yaw);
-    Serial.print(", Pitch: ");
-    Serial.print(ControllerData.pitch);
-    Serial.print(", Roll: ");
-    Serial.println(ControllerData.roll);
+    // Serial.print("Throttle: ");
+    // Serial.println(ControllerData.throttle);
+    // Serial.print(", Yaw: ");
+    // Serial.print(ControllerData.yaw);
+    // Serial.print(", Pitch: ");
+    // Serial.print(ControllerData.pitch);
+    // Serial.print(", Roll: ");
+    // Serial.println(ControllerData.roll);
 
-    radio.write(&ControllerData, sizeof(ControllerData));  //send data
-    delay(INTERVAL_MS_TRANSMISSION);
+    timeLCD = millis();
+    switch (display) {
+      case 0:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+            lcd.setCursor(0, 0);
+            lcd.print("Angle: ");
+            lcd.print(int(servoAngle));
+            lcd.print("   ");
+
+            lcd.setCursor(0, 1);
+            lcd.print("Safety: ");
+            lcd.print(safety);
+            lcd.print("   ");
+        }
+        break;
+      case 1:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+          lcd.setCursor(0, 0);
+          lcd.print("System Ready");
+          lcd.setCursor(0, 1);
+          lcd.print("Safety: ");
+          lcd.print(safety);
+          break;
+        }
+    }
   }
+
+  radio.write(&ControllerData, sizeof(ControllerData));  //send data
+  delay(INTERVAL_MS_TRANSMISSION);
 }
+

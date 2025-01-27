@@ -18,8 +18,7 @@ void setup() {
   };
 
   WIRE_PORT.begin();
-  WIRE_PORT.setClock(400000); // Set I2C clock speed to 400 kHz
-
+  WIRE_PORT.setClock(400000);
   bool initialized = false;
   while (!initialized) {
     myICM.begin(WIRE_PORT, AD0_VAL);
@@ -42,6 +41,7 @@ void loop() {
     delay(30);
   } else {
     SERIAL_PORT.println("Waiting for data");
+    // setup();
     delay(500);
   }
 }
