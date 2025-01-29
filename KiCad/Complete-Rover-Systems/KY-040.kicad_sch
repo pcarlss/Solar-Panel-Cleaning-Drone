@@ -1,0 +1,80 @@
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "3a162a54-e418-4b8c-a74d-d90e85dfd40c")
+	(paper "A4")
+	(lib_symbols)
+	(rectangle
+		(start 110.49 74.93)
+		(end 180.34 129.54)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(fill
+			(type none)
+		)
+		(uuid df1d1608-fc90-4a6b-947d-e867e4b0421d)
+	)
+	(hierarchical_label "CLK (A)"
+		(shape output)
+		(at 180.34 86.36 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "072831b5-d10d-413b-aa51-d9369a15f7f3")
+	)
+	(hierarchical_label "DT (B)"
+		(shape output)
+		(at 180.34 90.17 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "7b555236-15c1-47a4-a8f2-caef4215a3b0")
+	)
+	(hierarchical_label "GND"
+		(shape input)
+		(at 180.34 106.68 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "8534c0a2-c449-49e3-8a43-81406fc75af7")
+	)
+	(hierarchical_label "SW (Switch)"
+		(shape input)
+		(at 180.34 97.79 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "bd6933cc-4743-47e5-998f-3d54b3bc6e63")
+	)
+	(hierarchical_label "+ (5V)"
+		(shape input)
+		(at 180.34 104.14 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "da139751-a7d4-4863-9f80-7666e21166e5")
+	)
+)
