@@ -52,7 +52,7 @@ int display = 0;
 
 bool toggleHover = 1;
 String hover = "FREE";
-int hoverThrottleValue = 0;
+float hoverThrottleValue = 0;
 
 int missionPercentage = 0;
 
@@ -140,7 +140,7 @@ void scrollString(String message) {
     for (int position = 0; position <= messageLength - 16; position++) {
       lcd.setCursor(0, 0);                                    // Move cursor to the beginning
       lcd.print(message.substring(position, position + 16));  // Print the substring
-      delay(120);                                             // Introduce a small delay to control the scrolling speed
+      delay(150);                                             // Introduce a small delay to control the scrolling speed
     }
 
     // Wait until the message is completely off the screen
@@ -149,7 +149,7 @@ void scrollString(String message) {
       lcd.print("                ");                          // Clear the line for scrolling effect
       lcd.setCursor(0, 0);                                    // Move cursor to the beginning
       lcd.print(message.substring(position, position + 16));  // Print the substring
-      delay(120);                                             // Introduce a small delay to control the scrolling speed
+      delay(150);                                             // Introduce a small delay to control the scrolling speed
     }
 
     // Clear the display to remove any remaining characters
@@ -182,7 +182,7 @@ void loop() {
     switch (usbstate) {
       case USB_DETACHED_SUBSTATE_WAIT_FOR_DEVICE:
         Serial.println("Waiting for device...");
-        scrollString("   Awaiting RC signal...");
+        scrollString("        Awaiting RC signal");
         lcd.setCursor(2, 0);
         lcd.print("Insert USB");
         break;
@@ -288,7 +288,7 @@ void loop() {
     bool rightTriggerActive = false;
 
     if (display == 0) {
-      if (leftTrigger > 600) {
+      if (leftTrigger > 800) {
         if (!leftTriggerActive && servoAngle > 0) {
           servoAngle -= 0.25;
           leftTriggerActive = true;
@@ -297,7 +297,7 @@ void loop() {
         leftTriggerActive = false;
       }
 
-      if (rightTrigger > 600) {
+      if (rightTrigger > 800) {
         if (!rightTriggerActive && servoAngle < 180) {
           servoAngle += 0.25;
           rightTriggerActive = true;
@@ -307,8 +307,8 @@ void loop() {
       }
     } else if (display == 1) {
       if (leftTrigger > 600) {
-        if (!leftTriggerActive && hoverThrottleValue > 0) {
-          hoverThrottleValue -= 1;
+        if (!leftTriggerActive && hoverThrottleValue > 1000) {
+          hoverThrottleValue -= 0.25;
           leftTriggerActive = true;
         }
       } else {
@@ -317,7 +317,7 @@ void loop() {
 
       if (rightTrigger > 600) {
         if (!rightTriggerActive && hoverThrottleValue < 2000) {
-          hoverThrottleValue += 1;
+          hoverThrottleValue += 0.25;
           rightTriggerActive = true;
         }
       } else {
@@ -331,7 +331,7 @@ void loop() {
       ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE)
                                   ? rampToTarget(ControllerData.throttle, 1000, RAMP_UP_SPEED, RAMP_DOWN_THROTTLE)
                                   : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
-    }
+    } else ControllerData.throttle = int(hoverThrottleValue);
     ControllerData.yaw = (abs(yawInput) < DEAD_ZONE)
                            ? rampToTarget(ControllerData.yaw, 1500, RAMP_UP_SPEED, RAMP_DOWN_SPEED)
                            : rampToTarget(ControllerData.yaw, map(yawInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
@@ -417,7 +417,7 @@ void loop() {
               lcd.setCursor(10, 1);
               lcd.print("   ");
             }
-            lcd.print(hoverThrottleValue);
+            lcd.print((int)hoverThrottleValue);
           } else {
             lcd.print(ControllerData.throttle);
           }
@@ -439,8 +439,7 @@ void loop() {
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
           lcd.setCursor(1, 0);
-          lcd.print(char(255));
-          lcd.print("BATTERY TAB");
+          lcd.print("[BATTERY TAB]");
           lcd.setCursor(1, 1);
           lcd.print("D: ");
           lcd.print(Dbat);
