@@ -43,15 +43,21 @@ int scrollPosition = 0;
 float servoAngle = 90;
 
 bool toggleSafety = 0;
-String safety = "ON";
+String safety = " ARMED";
 
 bool startButtonPrevState = 0;
-bool syncButtonPrevState = 0;
-bool display = 0;
+int RBPrevState = 0;
+int LBPrevState = 0;
+int display = 0;
 
-bool toggleHover = 0;
-String hover = "OFF";
+bool toggleHover = 1;
+String hover = "FREE";
 int hoverThrottleValue = 0;
+
+int missionPercentage = 0;
+
+int Dbat = 50;
+int Rbat = 100;
 
 struct ControllerData {
   int roll;
@@ -156,12 +162,12 @@ void scrollString(String message) {
 }
 
 int rampToTarget(int currentValue, int targetValue, int rampUpSpeed, int rampDownSpeed) {
-    if (currentValue < targetValue) {
-        return min(currentValue + rampUpSpeed, targetValue); // Ramp up
-    } else if (currentValue > targetValue) {
-        return max(currentValue - rampDownSpeed, targetValue); // Ramp down
-    }
-    return currentValue; // No change needed
+  if (currentValue < targetValue) {
+    return min(currentValue + rampUpSpeed, targetValue);  // Ramp up
+  } else if (currentValue > targetValue) {
+    return max(currentValue - rampDownSpeed, targetValue);  // Ramp down
+  }
+  return currentValue;  // No change needed
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -224,7 +230,6 @@ void loop() {
   }
 
   if (Xbox.XboxOneConnected) {
-    // Define the dead zone threshold
     const int DEAD_ZONE = 7500;
 
     int throttleInput = Xbox.getAnalogHat(LeftHatY);
@@ -235,67 +240,97 @@ void loop() {
     int rightTrigger = Xbox.getButtonPress(RT);
     int start = Xbox.getButtonPress(START);
     int RB = Xbox.getButtonPress(R1);
+    int LB = Xbox.getButtonPress(L1);
 
     if (start && !startButtonPrevState && display == 0) {
       toggleSafety = !toggleSafety;
       switch (toggleSafety) {
         case 0:
-          safety = "ON ";
+          lcd.clear();
+          safety = " ARMED";
           break;
         default:
-          safety = "OFF";
+          lcd.clear();
+          safety = "DISARMED";
           break;
       }
-    }
-    else if(start && !startButtonPrevState && display == 1) {
+    } else if (start && !startButtonPrevState && display == 1) {
       toggleHover = !toggleHover;
-      switch(toggleHover) {
+      switch (toggleHover) {
         case 0:
-          hover = "ON ";
-          hoverThrottleValue = ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE)
-                                ? 1000 : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
+          lcd.clear();
+          hover = "HOLD";
+          hoverThrottleValue = ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE) ? 1000 : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
           break;
         default:
-          hover = "OFF";
+          lcd.clear();
+          hover = "FREE";
           break;
       }
     }
     startButtonPrevState = start;
-    Serial.print(toggleHover);
-    Serial.print(hover);
-    Serial.println(display);
 
-    if (RB && !syncButtonPrevState) {
-      display = !display;
+    if (RB && !RBPrevState) {
+      if (display == 3) display = 0;
+      else display++;
+      lcd.clear();
     }
-    syncButtonPrevState = RB;
+    RBPrevState = RB;
 
+    if (LB && !LBPrevState) {
+      if (display == 0) display = 3;
+      else display--;
+      lcd.clear();
+    }
+    LBPrevState = LB;
 
     bool leftTriggerActive = false;
     bool rightTriggerActive = false;
 
-    if (leftTrigger > 600) {
-      if (!leftTriggerActive && servoAngle > 0) {
-        servoAngle -= 0.25;
-        leftTriggerActive = true;
+    if (display == 0) {
+      if (leftTrigger > 600) {
+        if (!leftTriggerActive && servoAngle > 0) {
+          servoAngle -= 0.25;
+          leftTriggerActive = true;
+        }
+      } else {
+        leftTriggerActive = false;
       }
-    } else {
-      leftTriggerActive = false;
+
+      if (rightTrigger > 600) {
+        if (!rightTriggerActive && servoAngle < 180) {
+          servoAngle += 0.25;
+          rightTriggerActive = true;
+        }
+      } else {
+        rightTriggerActive = false;
+      }
+    } else if (display == 1) {
+      if (leftTrigger > 600) {
+        if (!leftTriggerActive && hoverThrottleValue > 0) {
+          hoverThrottleValue -= 1;
+          leftTriggerActive = true;
+        }
+      } else {
+        leftTriggerActive = false;
+      }
+
+      if (rightTrigger > 600) {
+        if (!rightTriggerActive && hoverThrottleValue < 2000) {
+          hoverThrottleValue += 1;
+          rightTriggerActive = true;
+        }
+      } else {
+        rightTriggerActive = false;
+      }
     }
 
-    if (rightTrigger > 600) {
-      if (!rightTriggerActive && servoAngle < 180) {
-        servoAngle += 0.25;
-        rightTriggerActive = true;
-      }
-    } else {
-      rightTriggerActive = false;
-    }
 
-    if (hover == "OFF"){
-    ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE)
-                                ? rampToTarget(ControllerData.throttle, 1000, RAMP_UP_SPEED, RAMP_DOWN_THROTTLE)
-                                : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
+
+    if (hover == "FREE") {
+      ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE)
+                                  ? rampToTarget(ControllerData.throttle, 1000, RAMP_UP_SPEED, RAMP_DOWN_THROTTLE)
+                                  : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
     }
     ControllerData.yaw = (abs(yawInput) < DEAD_ZONE)
                            ? rampToTarget(ControllerData.yaw, 1500, RAMP_UP_SPEED, RAMP_DOWN_SPEED)
@@ -326,32 +361,94 @@ void loop() {
       case 0:
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
-          lcd.setCursor(0, 0);
-          lcd.print("Angle: ");
-          lcd.print(int(servoAngle));
-          lcd.print("   ");
-
-          lcd.setCursor(0, 1);
-          lcd.print("Safety: ");
+          lcd.setCursor(1, 0);
+          lcd.print("[RELEASE TAB]");
+          lcd.setCursor(1, 1);
           lcd.print(safety);
-          lcd.print("   ");
+
+          if (safety == " ARMED") {
+            if (servoAngle >= 100) lcd.setCursor(9, 1);
+            else if (servoAngle >= 10) {
+              lcd.setCursor(9, 1);
+              lcd.print(" ");
+            } else {
+              lcd.setCursor(9, 1);
+              lcd.print("  ");
+            }
+            lcd.print(int(servoAngle));
+            lcd.setCursor(12, 1);
+            lcd.print(char(223));
+          } else {
+            if (servoAngle >= 100) lcd.setCursor(10, 1);
+            else if (servoAngle >= 10) {
+              lcd.setCursor(10, 1);
+              lcd.print(" ");
+            } else {
+              lcd.setCursor(10, 1);
+              lcd.print("  ");
+            }
+            lcd.print(int(servoAngle));
+            lcd.setCursor(13, 1);
+            lcd.print(char(223));
+          }
         }
         break;
       case 1:
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
-          lcd.setCursor(0, 0);
-          lcd.print("Auto Hover: ");
+          lcd.setCursor(1, 0);
+          lcd.print("[AUTO HOV TAB]");
+
+          lcd.setCursor(2, 1);
           lcd.print(hover);
 
-                    lcd.setCursor(0, 1);
-          lcd.print("Throttle: ");
-          if (hover == "ON") {
-          lcd.print(hoverThrottleValue);
-          lcd.print("   ");
+          lcd.setCursor(8, 1);
+          lcd.print("T:");
+
+          if (hover == "HOLD") {
+            if (hoverThrottleValue >= 1000) lcd.setCursor(10, 1);
+            else if (hoverThrottleValue >= 100) {
+              lcd.setCursor(10, 1);
+              lcd.print(" ");
+            } else if (hoverThrottleValue >= 10) {
+              lcd.setCursor(10, 1);
+              lcd.print("  ");
+            } else {
+              lcd.setCursor(10, 1);
+              lcd.print("   ");
+            }
+            lcd.print(hoverThrottleValue);
+          } else {
+            lcd.print(ControllerData.throttle);
           }
-          else lcd.print(ControllerData.throttle);
           break;
+        }
+      case 2:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+          lcd.setCursor(2, 0);
+          lcd.print("[ROVER TAB]");
+
+          lcd.setCursor(3, 1);
+          lcd.print("Path: ");
+          lcd.print(missionPercentage);
+          lcd.print("%");
+        }
+        break;
+      case 3:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+          lcd.setCursor(1, 0);
+          lcd.print(char(255));
+          lcd.print("BATTERY TAB");
+          lcd.setCursor(1, 1);
+          lcd.print("D: ");
+          lcd.print(Dbat);
+          lcd.print("%");
+          lcd.setCursor(9, 1);
+          lcd.print("R: ");
+          lcd.print(Rbat);
+          lcd.print("%");
         }
     }
   }
