@@ -452,6 +452,6 @@ void loop() {
     }
   }
 
-  radio.write(&ControllerData, sizeof(ControllerData));  //send data
+  radio.write(&ControllerData, sizeof(ControllerData));
   delay(INTERVAL_MS_TRANSMISSION);
 }
