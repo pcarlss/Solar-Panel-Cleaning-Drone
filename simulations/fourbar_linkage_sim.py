@@ -96,9 +96,10 @@ follower_length = l3[max_idx[2]]
 frame_length = l4
 
 print(f"OPTIMAL CONDITIONS")
-print(f"Best torque ratio:   {torque_ratio:.3f} ")
-print(f"Best driver length:  {driver_length:.2f} (mm)")
-print(f"Best coupler length: {coupler_length:.2f} (mm)")
-print(f"Frame length:        {frame_length:.2f} (mm)")
+print(f"Best torque ratio:      {torque_ratio:.3f} ")
+print(f"Best driver length:     {driver_length:.2f} (mm)")
+print(f"Best coupler length:    {coupler_length:.2f} (mm)")
+print(f"Best follower length:   {follower_length:.2f} (mm)")
+print(f"Frame length:           {frame_length:.2f} (mm)")
 print("\n\n\n")
 plt.show()
