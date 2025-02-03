@@ -2,6 +2,37 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
 
+
+class SimpleMotor():
+    def __init__(self, Vmax=12, Vmin=-12, speedmax=10, speedmin=-10):
+        """
+        Super simplified motor model with speed directly proportional to voltage
+        """
+        self.Vmax = Vmax
+        self.Vmin = Vmin
+        self.speedmax = speedmax
+        self.speedmin = speedmin
+        
+        self.slope = (self.speedmax-self.speedmin)/(self.Vmax-self.Vmin)
+        self.b = self.speedmax - self.slope*self.Vmax
+        self.speed = 0
+        self.voltage = 0
+        pass
+    
+    def update(self, voltage):
+        """
+        Update motor state for one time step using the given voltage
+        Returns current angular velocity
+        """
+        self.voltage = max(min(voltage, self.Vmax), self.Vmin) 
+        self.speed = self.slope*self.voltage - self.b
+        return self.speed # Return angular velocity
+    
+    def get_speed(self):
+        """Get the current angular velocity"""
+        return self.speed
+
+
 class DCMotorDiscrete:
     def __init__(self, dt=0.1, J=0.01, b=0.1, K=0.01, R=1.0, L=0.5, Vmax=12, Vmin=-12):
         """
@@ -85,6 +116,9 @@ if __name__ == "__main__":
     motor = DCMotorDiscrete(K = 1.14, dt=dt)
     pid = PIDController(Kp=3, Ki=10, Kd=0.05, dt=dt)
     
+    # motor = SimpleMotor()
+    # pid = PIDController(Kp=0, Ki=5, Kd=0, dt=dt)
+
     time = np.zeros(steps)
     speed = np.zeros(steps)
     target = np.zeros(steps)
