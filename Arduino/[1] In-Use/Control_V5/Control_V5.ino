@@ -92,7 +92,7 @@ void setup() {
   lcd.print("[SPCD Start]");
   lcd.setCursor(1, 1);
   lcd.print("Capstone  2025");
-  delay(2000);
+  delay(1500);
 }
 
 void initializeRadio() {
@@ -126,40 +126,40 @@ void initializeRadio() {
 /////////////////////////////////////////////////////////////////////////////
 /////////////////// SCROLL LCD FUNCTION /////////////////////////////////////
 
-void scrollString(String message) {
-  // Clear the display and print the message at the start
-  lcd.clear();
-  lcd.print(message);
+// void scrollString(String message) {
+//   // Clear the display and print the message at the start
+//   lcd.clear();
+//   lcd.print(message);
 
-  // Calculate the length of the message
-  int messageLength = message.length();
+//   // Calculate the length of the message
+//   int messageLength = message.length();
 
-  // Scroll the message if it's longer than 16 characters
-  if (messageLength > 16) {
-    // Loop through the message to create a scrolling effect
-    for (int position = 0; position <= messageLength - 16; position++) {
-      lcd.setCursor(0, 0);                                    // Move cursor to the beginning
-      lcd.print(message.substring(position, position + 16));  // Print the substring
-      delay(150);                                             // Introduce a small delay to control the scrolling speed
-    }
+//   // Scroll the message if it's longer than 16 characters
+//   if (messageLength > 16) {
+//     // Loop through the message to create a scrolling effect
+//     for (int position = 0; position <= messageLength - 16; position++) {
+//       lcd.setCursor(0, 0);                                    // Move cursor to the beginning
+//       lcd.print(message.substring(position, position + 16));  // Print the substring
+//       delay(150);                                             // Introduce a small delay to control the scrolling speed
+//     }
 
-    // Wait until the message is completely off the screen
-    for (int position = messageLength - 16; position < messageLength; position++) {
-      lcd.setCursor(0, 0);                                    // Move cursor to the beginning
-      lcd.print("                ");                          // Clear the line for scrolling effect
-      lcd.setCursor(0, 0);                                    // Move cursor to the beginning
-      lcd.print(message.substring(position, position + 16));  // Print the substring
-      delay(150);                                             // Introduce a small delay to control the scrolling speed
-    }
+//     // Wait until the message is completely off the screen
+//     for (int position = messageLength - 16; position < messageLength; position++) {
+//       lcd.setCursor(0, 0);                                    // Move cursor to the beginning
+//       lcd.print("                ");                          // Clear the line for scrolling effect
+//       lcd.setCursor(0, 0);                                    // Move cursor to the beginning
+//       lcd.print(message.substring(position, position + 16));  // Print the substring
+//       delay(150);                                             // Introduce a small delay to control the scrolling speed
+//     }
 
-    // Clear the display to remove any remaining characters
-    lcd.clear();
-  } else {
-    // If the message fits, print it without scrolling
-    lcd.clear();
-    lcd.print(message);
-  }
-}
+//     // Clear the display to remove any remaining characters
+//     lcd.clear();
+//   } else {
+//     // If the message fits, print it without scrolling
+//     lcd.clear();
+//     lcd.print(message);
+//   }
+// }
 
 int rampToTarget(int currentValue, int targetValue, int rampUpSpeed, int rampDownSpeed) {
   if (currentValue < targetValue) {
@@ -182,8 +182,11 @@ void loop() {
     switch (usbstate) {
       case USB_DETACHED_SUBSTATE_WAIT_FOR_DEVICE:
         Serial.println("Waiting for device...");
-        scrollString("        Awaiting RC signal");
-        lcd.setCursor(2, 0);
+        // scrollString("        Awaiting RC signal");
+        lcd.clear();
+        lcd.setCursor(5, 1);
+        lcd.print("[Idle]");
+        lcd.setCursor(3, 0);
         lcd.print("Insert USB");
         break;
       case USB_ATTACHED_SUBSTATE_RESET_DEVICE:
@@ -194,6 +197,8 @@ void loop() {
         Serial.println("Reset complete. Waiting for the first SOF...");
         // scrollString("Reset complete. Waiting for SOF...");
         lcd.clear();
+        lcd.setCursor(3, 1);
+        lcd.print("[Active]");
         lcd.setCursor(1, 0);
         lcd.print("USB Connected");
         delay(1000);
@@ -271,14 +276,14 @@ void loop() {
     startButtonPrevState = start;
 
     if (RB && !RBPrevState) {
-      if (display == 3) display = 0;
+      if (display == 4) display = 0;
       else display++;
       lcd.clear();
     }
     RBPrevState = RB;
 
     if (LB && !LBPrevState) {
-      if (display == 0) display = 3;
+      if (display == 0) display = 4;
       else display--;
       lcd.clear();
     }
@@ -306,7 +311,7 @@ void loop() {
         rightTriggerActive = false;
       }
     } else if (display == 1) {
-      if (leftTrigger > 600) {
+      if (leftTrigger > 800) {
         if (!leftTriggerActive && hoverThrottleValue > 1000) {
           hoverThrottleValue -= 0.25;
           leftTriggerActive = true;
@@ -315,7 +320,7 @@ void loop() {
         leftTriggerActive = false;
       }
 
-      if (rightTrigger > 600) {
+      if (rightTrigger > 800) {
         if (!rightTriggerActive && hoverThrottleValue < 2000) {
           hoverThrottleValue += 0.25;
           rightTriggerActive = true;
@@ -449,9 +454,35 @@ void loop() {
           lcd.print(Rbat);
           lcd.print("%");
         }
+        break;
+      case 4:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+
+          // Calculate uptime in seconds
+          unsigned long uptime = timeLCD / 1000;  // Convert milliseconds to seconds
+
+          // Calculate hours, minutes, and seconds
+          unsigned long hours = uptime / 3600;
+          unsigned long minutes = (uptime % 3600) / 60;
+          unsigned long seconds = uptime % 60;
+
+          lcd.setCursor(1, 0);
+          lcd.print("[Service Time]");
+          lcd.setCursor(4, 1);
+          if (hours < 10) lcd.print("0");
+          lcd.print(hours);
+          lcd.print(":");
+          if (minutes < 10) lcd.print("0");
+          lcd.print(minutes);
+          lcd.print(":");
+          if (seconds < 10) lcd.print("0");
+          lcd.print(seconds);
+        }
+        break;
     }
   }
 
-  radio.write(&ControllerData, sizeof(ControllerData));  //send data
+  radio.write(&ControllerData, sizeof(ControllerData));
   delay(INTERVAL_MS_TRANSMISSION);
 }
