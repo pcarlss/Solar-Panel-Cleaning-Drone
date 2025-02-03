@@ -1,0 +1,64 @@
+import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    coord: tuple[int, int]
+    is_clean: bool = False     
+
+class OutOfBoundsError(Exception):
+    pass
+
+class Area:
+    def __init__(self, width: float, height: float, div: int):
+        # basic dimensions and divisions
+        self.width = width
+        self.height = height
+        self.div = div
+        
+        # length of x and y increments
+        self.xstep = width/div
+        self.ystep = height/div
+        
+        # x and y ranges as linspace
+        x = np.linspace(0, width, div, endpoint=False)
+        y = np.linspace(0, height, div, endpoint=False)
+
+        # create position_array with all points x, y
+        self.position_array = np.empty((div, div), dtype=object) 
+        for i in range(div):
+            for j in range(div):
+                self.position_array[i][j] = Point(coord=(x[i], y[j]))
+        pass 
+    
+    
+    def locate(self, x, y):
+        """Locate point associated with indicated coordinates. Rounds down by default
+        
+        Returns:
+            Point: point nearest coordinates
+        """
+        if x <= 0 or x >= self.width:
+            raise OutOfBoundsError(f"X-coordinate {x} out of bounds [0, {self.width}]")
+        if y <= 0 or y >= self.height:
+            raise OutOfBoundsError(f"y-coordinate {y} out of bounds [0, {self.height}]")
+        
+        return self.position_array[int(x//self.xstep)][int(y//self.ystep)]
+
+    def locate_round(self, x, y):
+        """Locate point associated with indicated coordinates. Rounds to actual nearest point
+
+        Returns:
+            Point: point nearest coordinates
+        """
+        if x <= 0 or x >= self.width:
+            raise OutOfBoundsError(f"X-coordinate {x} out of bounds [0, {self.width}]")
+        if y <= 0 or y >= self.height:
+            raise OutOfBoundsError(f"y-coordinate {y} out of bounds [0, {self.height}]")
+        
+        return self.position_array[int(round(x/self.xstep))][int(round(y/self.ystep))]
+    
+
+if __name__ == "__main__":     
+    a = Area(1, 1, 10)
+    print(a.locate_round(0.74, 0.76))
