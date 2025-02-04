@@ -1,6 +1,8 @@
 import numpy as np
+from Common import *
 
-class Area:
+
+class SolarPanelArea:
     def __init__(self, width: float, height: float, div: int):
         # basic dimensions and divisions
         self.width = width
@@ -50,6 +52,10 @@ class Area:
         return self.position_array[int(round(x/self.xstep))][int(round(y/self.ystep))]
     
 
-if __name__ == "__main__":     
-    a = Area(1, 1, 10)
-    print(a.locate_round(0.74, 0.76))
+    def get_random_starting_location(self):
+        pass
+
+    def update_rover_on_panel(rover_actual_position):
+        pass
+
+    
