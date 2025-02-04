@@ -3,14 +3,13 @@ import math
 import random
 from dataclasses import dataclass
 
-class Common:
-    IMU_ERROR = 0.05  # Example error factor for IMU
-    TOP_SPEED_MAPPING = 20  # mm/s
-    TOP_SPEED_CLEANING = 50  # mm/s
-    ROVER_DIMENSIONS = (200, 170)  # mm (length, width)
-    CLEANER_WIDTH = 150  # mm
-    ACCELERATION_STEP = 5  # mm/s^2
-    TIME_STEP = 1
+IMU_ERROR = 0.05  # Example error factor for IMU
+TOP_SPEED_MAPPING = 20  # mm/s
+TOP_SPEED_CLEANING = 50  # mm/s
+ROVER_DIMENSIONS = (200, 170)  # mm (length, width)
+CLEANER_WIDTH = 150  # mm
+ACCELERATION_STEP = 5  # mm/s^2
+TIME_STEP = 1
 
 @dataclass
 class Point:
@@ -19,8 +18,6 @@ class Point:
 
 class OutOfBoundsError(Exception):
     pass
-
-
 
 class DecisionStates(Enum):
     IDLE = 1
@@ -35,3 +32,4 @@ class RadioMessage(Enum):
     STOPCLEANING = 2
     CLEANINGDONETAKEMEAWAY = 3
     NOMESSAGE = 4
+

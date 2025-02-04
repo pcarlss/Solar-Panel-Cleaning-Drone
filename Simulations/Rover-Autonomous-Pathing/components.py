@@ -2,6 +2,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
 
+class IMU:
+    def __init__(self):
+        self.prev_acceleration = [0, 0]  # [ax, ay] in mm/s²
+        self.prev_velocity = 0          # Scalar velocity in mm/s
+        self.prev_orientation = 0       # Angle in degrees (yaw)
+        self.prev_position = [0, 0]     # [x, y] position in mm
+
+    def getInfo(self):
+        return 
+
+class LimitSwitch:
+   def detect_edge(self, solar_panel_area, rover_position):
+        return 
+
+class RotaryEncoder:
+    def getTrackVelocity(self):
+        return
 
 class SimpleMotor():
     def __init__(self, Vmax=12, Vmin=-12, speedmax=10, speedmin=-10):
@@ -78,8 +95,27 @@ class DCMotorDiscrete:
         """Get the current angular velocity"""
         return self.x[1, 0]
 
+class TrackMotor:
+    def power(self, pwm,direction):
+       return
+   
+class CleaningMotor:
+    def __init__(self):
+        self.is_cleaning = False
+
+
+    def power(self, is_on:bool):
+       self.is_cleaning = is_on
+
+
+    def is_cleaning(self):
+        return self.is_cleaning
+    
 class PIDController:
     def __init__(self, Kp=1.0, Ki=0.0, Kd=0.0, dt=0.1):
+        """
+        Generic PID controller with settable Kp, Kd, Ki, and dt
+        """
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
@@ -87,79 +123,29 @@ class PIDController:
         self.reset()
         
     def reset(self):
+        """
+        Reset errors completely
+        """
         self.integral = 0
         self.previous_error = 0
+        self.error = 0
         
     def calculate(self, setpoint, measurement):
-        error = setpoint - measurement
+        """
+        Calculate next gain output using setpoint (desired) and measurement (data). 
+        """
+        self.error = setpoint - measurement
         
         # Proportional term
-        P = self.Kp * error
+        P = self.Kp * self.error
         
         # Integral term
-        self.integral += error * self.dt
+        self.integral += self.error * self.dt
         I = self.Ki * self.integral
         
         # Derivative term
-        D = self.Kd * (error - self.previous_error) / self.dt
-        self.previous_error = error
+        D = self.Kd * (self.error - self.previous_error) / self.dt
+        self.previous_error = self.error
         
         return P + I + D
-
-
-# Simulation example
-if __name__ == "__main__":
-    dt = 0.01  # Time step [s]
-    sim_time = 5.0  # Total simulation time [s]
-    steps = int(sim_time/dt)
-    
-    motor = DCMotorDiscrete(K = 1.14, dt=dt)
-    pid = PIDController(Kp=3, Ki=10, Kd=0.05, dt=dt)
-    
-    # motor = SimpleMotor()
-    # pid = PIDController(Kp=0, Ki=5, Kd=0, dt=dt)
-
-    time = np.zeros(steps)
-    speed = np.zeros(steps)
-    target = np.zeros(steps)
-    voltage_input = np.zeros(steps)
-    
-    # Simulation loop
-    for i in range(steps):
-        # Update target speed at specific times
-        if i < 100:
-            new_target = 0
-        elif i < 300:
-            new_target = 2.5
-        else:
-            new_target = 5
-        
-        # Get current speed
-        current_speed = motor.get_speed()
-        
-        # Calculate control voltage using PID controller
-        control_voltage = pid.calculate(new_target, current_speed)
-        
-        # Update motor state with the control voltage
-        motor.update(control_voltage)
-        
-        # Record values
-        time[i] = i * dt
-        speed[i] = current_speed
-        target[i] = new_target
-        voltage_input[i] = control_voltage
-    
-    # Plot results
-    plt.figure(figsize=(10, 6))
-    
-    plt.plot(time, target, 'r--', label='Target Speed')
-    plt.plot(time, speed, 'b-', label='Actual Speed')
-    # plt.plot(time, voltage_input, 'g--', label='Control Voltage')
-    
-    plt.xlabel('Time [s]')
-    plt.ylabel('Angular Velocity [rad/s] / Voltage [V]')
-    plt.title('Motor Speed Tracking with PID Control')
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+ 

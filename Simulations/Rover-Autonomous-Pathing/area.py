@@ -1,5 +1,5 @@
 import numpy as np
-from Common import *
+from common import *
 
 
 class SolarPanelArea:

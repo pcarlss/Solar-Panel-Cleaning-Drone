@@ -1,8 +1,5 @@
-from Sensors.IMU import IMU
-from Sensors.Motor import TrackMotor, CleaningMotor
-from Sensors.LimitSwitch import LimitSwitch
-from Sensors.RotaryEncoder import RotaryEncoder
-from Common import *
+from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
+from common import DecisionStates, RadioMessage
 
 
 class Rover:
@@ -18,11 +15,25 @@ class Rover:
         self.decision_state = DecisionStates.IDLE
         self.radio_message = RadioMessage.NOMESSAGE
 
-    def get_actual_data(self, solar_panel_area):
-        """Retrieve and process actual data about the solar panel area."""
-        panel_size = self.calculate_panel_size(solar_panel_area)
-        position = self.imu.get_position()
-        return panel_size, position
+        self.axle_length = 0.170 #170mm
+        self.wheel_radius = 0.005 #5mm
+        
+    def set_trajectory(self, desired_speed, desired_turn_rate):
+        """
+        Sets the velocity of the left and right motors
+
+        Args:
+            desired_speed (_type_): _description_
+            desired_turn_rate (_type_): _description_
+        """
+        # from the equations: 
+        # Vavg = r (wl + wr) / 2
+        # w = r (wr - wl) / 2
+        self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
+        self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
+
+    def get_actual_data(self,solar_panel_area):
+        pass
 
     def get_sensor_data(self):
         """Fetch sensor readings for decision-making."""
@@ -94,66 +105,4 @@ class Rover:
             case DecisionStates.DONE:
                 self.when_done()
 
-    # Movement Helper Functions
-    def move_backward_until_edge(self):
-        """Move backward until the limit switches detect an edge."""
-        while not self.limit_switch_array[0].is_pressed():
-            self.track_motor_1.move_backward()
-            self.track_motor_2.move_backward()
-        self.stop_motors()
-
-    def align_with_edge(self):
-        """Align the rover with the detected edge using IMU and encoders."""
-        self.imu.adjust_alignment()
-
-    def turn_right(self, angle):
-        """Turn right by a given angle using motor control."""
-        self.track_motor_1.rotate(angle, direction="right")
-        self.track_motor_2.rotate(angle, direction="right")
-
-    def turn_left(self, angle):
-        """Turn left by a given angle using motor control."""
-        self.track_motor_1.rotate(angle, direction="left")
-        self.track_motor_2.rotate(angle, direction="left")
-
-    def move_forward_slightly(self):
-        """Move forward slightly to avoid falling off the panel edge."""
-        self.track_motor_1.move_forward()
-        self.track_motor_2.move_forward()
-
-    def move_backward_until_corner(self):
-        """Move backward while staying close to the edge until a corner is detected."""
-        while not self.limit_switch_array[7].is_pressed():
-            self.track_motor_1.move_backward()
-            self.track_motor_2.move_backward()
-        self.stop_motors()
-
-    def follow_edge(self):
-        """Move forward while maintaining distance from the edge."""
-        self.track_motor_1.move_forward()
-        self.track_motor_2.move_forward()
-
-    def clean_straight(self):
-        """Activate cleaning motors while moving forward."""
-        self.cleaning_motors.start()
-        self.track_motor_1.move_forward()
-        self.track_motor_2.move_forward()
-
-    def follow_inner_path(self):
-        """Follow the designated inner path while cleaning."""
-        self.track_motor_1.move_forward()
-        self.track_motor_2.move_forward()
-
-    def stop_motors(self):
-        """Stop all track and cleaning motors."""
-        self.track_motor_1.stop()
-        self.track_motor_2.stop()
-        self.cleaning_motors.stop()
-
-    def outer_loop_complete(self):
-        """Check if the outer loop cleaning is complete."""
-        return False  # Placeholder condition
-
-    def inner_loop_complete(self):
-        """Check if the inner loop cleaning is complete."""
-        return False  # Placeholder condition
+        
