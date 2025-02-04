@@ -1,5 +1,3 @@
-import math
-
 class IMU:
     def __init__(self):
         self.prev_acceleration = [0, 0]  # [ax, ay] in mm/s²
@@ -7,5 +5,17 @@ class IMU:
         self.prev_orientation = 0       # Angle in degrees (yaw)
         self.prev_position = [0, 0]     # [x, y] position in mm
 
-    def getInfo(self):
-        return 
+    def get_info(self):
+        return {
+            "acceleration": self.prev_acceleration,
+            "velocity": self.prev_velocity,
+            "orientation": self.prev_orientation,
+            "position": self.prev_position,
+        }
+
+    def reset_position(self):
+        self.prev_position = [0, 0]
+        self.prev_orientation = 0
+
+    def adjust_alignment(self):
+        pass

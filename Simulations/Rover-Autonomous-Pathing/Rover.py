@@ -1,5 +1,5 @@
 from Sensors.IMU import IMU
-from Sensors.Motor import TrackMotor,CleaningMotor
+from Sensors.Motor import TrackMotor, CleaningMotor
 from Sensors.LimitSwitch import LimitSwitch
 from Sensors.RotaryEncoder import RotaryEncoder
 from Common import *
@@ -18,65 +18,71 @@ class Rover:
         self.decision_state = DecisionStates.IDLE
         self.radio_message = RadioMessage.NOMESSAGE
 
-    def get_actual_data(self,solar_panel_area):
-        pass
+    def get_actual_data(self, solar_panel_area):
+        """Retrieve and process actual data about the solar panel area."""
+        panel_size = self.calculate_panel_size(solar_panel_area)
+        position = self.imu.get_position()
+        return panel_size, position
 
     def get_sensor_data(self):
-        pass
+        """Fetch sensor readings for decision-making."""
+        imu_data = self.imu.get_data()
+        encoder_1_pos = self.rotary_encoder_1.get_position()
+        encoder_2_pos = self.rotary_encoder_2.get_position()
+        limit_switches = [switch.is_pressed() for switch in self.limit_switch_array]
+        return imu_data, encoder_1_pos, encoder_2_pos, limit_switches
 
-    def set_radio_message(self,radio_message):
-        self.radio_message =radio_message
+    def set_radio_message(self, radio_message):
+        """Set the current radio message."""
+        self.radio_message = radio_message
 
     def search_for_corner(self):
-        #back up until edge
-        # align rover ass to edge
-        # turn right 90 deg (might have to move fwd slgihtly to avoid falling)
-        # go backwards until hits corner, while staying clsoe to edge
+        """Perform movements to find a corner of the solar panel."""
+        self.move_backward_until_edge()
+        self.align_with_edge()
+        self.turn_right(90)
+        self.move_forward_slightly()
+        self.move_backward_until_corner()
         self.decision_state = DecisionStates.BEGINCLEANING
-        pass
 
     def initialize_cleaning(self):
-        #initialize IMU to 0,0
-        #start cleaning motors
-        #
+        """Initialize IMU, start cleaning motors, and prepare for cleaning."""
+        self.imu.reset_position()
+        self.cleaning_motors.start()
         self.decision_state = DecisionStates.CLEANOUTERLOOP
-        pass
 
     def clean_outer_loop(self):
-        #go fwd while staying near the edge (use 2 edge detect array to stay at set distance from edge)
-        #at edge, turn 90 deg left to face up, go straight & clean, repeat
-        # validate with provided panel edge
-        # use imu to validate orientation
-        # if exit condition is met (aka traveled req distance)
+        """Perform outer loop cleaning while tracking the panel edge."""
+        while not self.outer_loop_complete():
+            self.follow_edge()
+            self.turn_left(90)
+            self.clean_straight()
         self.decision_state = DecisionStates.CLEANINNERLOOPS
-        pass
 
     def clean_inner_loops(self):
-        #go fwd while tracking distance (use 2 edge detect array to stay at set distance from edge)
-        #at edge, turn 90 deg left to face up, go straight & clean, repeat
-        # validate with provided panel edge
-        # use imu to validate orientation
-        # if exit condition is met (aka traveled req distance)
+        """Perform inner loop cleaning while maintaining alignment."""
+        while not self.inner_loop_complete():
+            self.follow_inner_path()
+            self.turn_left(90)
+            self.clean_straight()
         self.decision_state = DecisionStates.DONE
-        pass
 
     def when_done(self):
+        """Send completion message and stop all movements."""
         self.set_radio_message(RadioMessage.CLEANINGDONETAKEMEAWAY)
+        self.stop_motors()
         self.decision_state = DecisionStates.DONE
-        pass 
-
-
-
 
     def make_decision(self):
+        """Control rover actions based on its current decision state."""
         if self.radio_message == RadioMessage.NOMESSAGE:
-            pass
+            return
         elif self.radio_message == RadioMessage.STARTCLEANINGOK:
             self.decision_state = DecisionStates.SEARCHFORCORNER
-        
+
         match self.decision_state:
             case DecisionStates.IDLE:
-               pass
+                pass
             case DecisionStates.SEARCHFORCORNER:
                 self.search_for_corner()
             case DecisionStates.BEGINCLEANING:
@@ -88,6 +94,66 @@ class Rover:
             case DecisionStates.DONE:
                 self.when_done()
 
+    # Movement Helper Functions
+    def move_backward_until_edge(self):
+        """Move backward until the limit switches detect an edge."""
+        while not self.limit_switch_array[0].is_pressed():
+            self.track_motor_1.move_backward()
+            self.track_motor_2.move_backward()
+        self.stop_motors()
 
+    def align_with_edge(self):
+        """Align the rover with the detected edge using IMU and encoders."""
+        self.imu.adjust_alignment()
 
-        
+    def turn_right(self, angle):
+        """Turn right by a given angle using motor control."""
+        self.track_motor_1.rotate(angle, direction="right")
+        self.track_motor_2.rotate(angle, direction="right")
+
+    def turn_left(self, angle):
+        """Turn left by a given angle using motor control."""
+        self.track_motor_1.rotate(angle, direction="left")
+        self.track_motor_2.rotate(angle, direction="left")
+
+    def move_forward_slightly(self):
+        """Move forward slightly to avoid falling off the panel edge."""
+        self.track_motor_1.move_forward()
+        self.track_motor_2.move_forward()
+
+    def move_backward_until_corner(self):
+        """Move backward while staying close to the edge until a corner is detected."""
+        while not self.limit_switch_array[7].is_pressed():
+            self.track_motor_1.move_backward()
+            self.track_motor_2.move_backward()
+        self.stop_motors()
+
+    def follow_edge(self):
+        """Move forward while maintaining distance from the edge."""
+        self.track_motor_1.move_forward()
+        self.track_motor_2.move_forward()
+
+    def clean_straight(self):
+        """Activate cleaning motors while moving forward."""
+        self.cleaning_motors.start()
+        self.track_motor_1.move_forward()
+        self.track_motor_2.move_forward()
+
+    def follow_inner_path(self):
+        """Follow the designated inner path while cleaning."""
+        self.track_motor_1.move_forward()
+        self.track_motor_2.move_forward()
+
+    def stop_motors(self):
+        """Stop all track and cleaning motors."""
+        self.track_motor_1.stop()
+        self.track_motor_2.stop()
+        self.cleaning_motors.stop()
+
+    def outer_loop_complete(self):
+        """Check if the outer loop cleaning is complete."""
+        return False  # Placeholder condition
+
+    def inner_loop_complete(self):
+        """Check if the inner loop cleaning is complete."""
+        return False  # Placeholder condition
