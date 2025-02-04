@@ -1,8 +1,5 @@
-from Sensors.IMU import IMU
-from Sensors.Motor import TrackMotor,CleaningMotor
-from Sensors.LimitSwitch import LimitSwitch
-from Sensors.RotaryEncoder import RotaryEncoder
-from Common import *
+from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
+from common import DecisionStates, RadioMessage
 
 
 class Rover:
@@ -17,6 +14,23 @@ class Rover:
 
         self.decision_state = DecisionStates.IDLE
         self.radio_message = RadioMessage.NOMESSAGE
+
+        self.axle_length = 0.170 #170mm
+        self.wheel_radius = 0.005 #5mm
+        
+    def set_trajectory(self, desired_speed, desired_turn_rate):
+        """
+        Sets the velocity of the left and right motors
+
+        Args:
+            desired_speed (_type_): _description_
+            desired_turn_rate (_type_): _description_
+        """
+        # from the equations: 
+        # Vavg = r (wl + wr) / 2
+        # w = r (wr - wl) / 2
+        self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
+        self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
 
     def get_actual_data(self,solar_panel_area):
         pass
@@ -87,7 +101,5 @@ class Rover:
                 self.clean_inner_loops()
             case DecisionStates.DONE:
                 self.when_done()
-
-
 
         
