@@ -22,8 +22,7 @@ def visualization_test():
     plt.ylim(0,10)
     # updates the data and graph
     def update(frame):
-        global graph
-
+        
         # updating the data
         x.append(x[-1] + 1)
         y.append(random.randint(1,10))
@@ -105,9 +104,9 @@ def panel_test():
 if __name__ == '__main__':
     # Write which test you want to run here
 
-    #motor_test()
-    #visualization_test()
-    #panel_test()
+    # motor_test()
+    # visualization_test()
+    # panel_test()
 
 
 
