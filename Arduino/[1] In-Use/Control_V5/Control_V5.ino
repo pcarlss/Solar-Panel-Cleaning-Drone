@@ -43,12 +43,12 @@ int scrollPosition = 0;
 float servoAngle = 90;
 
 bool toggleSafety = 0;
-String safety = " ARMED";
+String safety = " Armed";
 
 bool startButtonPrevState = 0;
 int RBPrevState = 0;
 int LBPrevState = 0;
-int display = 0;
+int display = 5;
 
 bool toggleHover = 1;
 String hover = "FREE";
@@ -58,6 +58,8 @@ int missionPercentage = 0;
 
 int Dbat = 50;
 int Rbat = 100;
+
+bool droneAdminStatus = false;
 
 struct ControllerData {
   int roll;
@@ -184,8 +186,6 @@ void loop() {
         Serial.println("Waiting for device...");
         // scrollString("        Awaiting RC signal");
         lcd.clear();
-        lcd.setCursor(5, 1);
-        lcd.print("[Idle]");
         lcd.setCursor(3, 0);
         lcd.print("Insert USB");
         break;
@@ -197,10 +197,8 @@ void loop() {
         Serial.println("Reset complete. Waiting for the first SOF...");
         // scrollString("Reset complete. Waiting for SOF...");
         lcd.clear();
-        lcd.setCursor(3, 1);
-        lcd.print("[Active]");
-        lcd.setCursor(1, 0);
-        lcd.print("USB Connected");
+        lcd.setCursor(3, 0);
+        lcd.print("USB Active");
         delay(1000);
         lcd.clear();
         break;
@@ -252,11 +250,11 @@ void loop() {
       switch (toggleSafety) {
         case 0:
           lcd.clear();
-          safety = " ARMED";
+          safety = " Armed";
           break;
         default:
           lcd.clear();
-          safety = "DISARMED";
+          safety = "Disarmed";
           break;
       }
     } else if (start && !startButtonPrevState && display == 1) {
@@ -264,26 +262,29 @@ void loop() {
       switch (toggleHover) {
         case 0:
           lcd.clear();
-          hover = "HOLD";
+          hover = "Hold";
           hoverThrottleValue = ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE) ? 1000 : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
           break;
         default:
           lcd.clear();
-          hover = "FREE";
+          hover = "Free";
           break;
       }
+    }
+    else if (start && !startButtonPrevState && display == 5) {
+      droneAdminStatus = !droneAdminStatus;
     }
     startButtonPrevState = start;
 
     if (RB && !RBPrevState) {
-      if (display == 4) display = 0;
+      if (display == 5) display = 0;
       else display++;
       lcd.clear();
     }
     RBPrevState = RB;
 
     if (LB && !LBPrevState) {
-      if (display == 0) display = 4;
+      if (display == 0) display = 5;
       else display--;
       lcd.clear();
     }
@@ -351,6 +352,7 @@ void loop() {
 
     ControllerData.safety = toggleSafety;
     ControllerData.angle = int(servoAngle);
+    ControllerData.AUX = droneAdminStatus;
 
     // Serial.print("Throttle: ");
     // Serial.print(ControllerData.throttle);
@@ -360,6 +362,7 @@ void loop() {
     // Serial.print(ControllerData.pitch);
     // Serial.print(", Roll: ");
     // Serial.println(ControllerData.roll);
+    Serial.println(ControllerData.AUX);
 
     timeLCD = millis();
     switch (display) {
@@ -367,11 +370,11 @@ void loop() {
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
           lcd.setCursor(1, 0);
-          lcd.print("[RELEASE TAB]");
+          lcd.print("[RELEASE TAB ]");
           lcd.setCursor(1, 1);
           lcd.print(safety);
 
-          if (safety == " ARMED") {
+          if (safety == " Armed") {
             if (servoAngle >= 100) lcd.setCursor(9, 1);
             else if (servoAngle >= 10) {
               lcd.setCursor(9, 1);
@@ -431,8 +434,8 @@ void loop() {
       case 2:
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
-          lcd.setCursor(2, 0);
-          lcd.print("[ROVER TAB]");
+          lcd.setCursor(1, 0);
+          lcd.print("[ ROVER TAB  ]");
 
           lcd.setCursor(3, 1);
           lcd.print("Path: ");
@@ -444,7 +447,7 @@ void loop() {
         if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
           lastLCD = timeLCD;
           lcd.setCursor(1, 0);
-          lcd.print("[BATTERY TAB]");
+          lcd.print("[BATTERY TAB ]");
           lcd.setCursor(1, 1);
           lcd.print("D: ");
           lcd.print(Dbat);
@@ -468,7 +471,7 @@ void loop() {
           unsigned long seconds = uptime % 60;
 
           lcd.setCursor(1, 0);
-          lcd.print("[Service Time]");
+          lcd.print("[SERVICE TIME]");
           lcd.setCursor(4, 1);
           if (hours < 10) lcd.print("0");
           lcd.print(hours);
@@ -478,6 +481,16 @@ void loop() {
           lcd.print(":");
           if (seconds < 10) lcd.print("0");
           lcd.print(seconds);
+        }
+        break;
+      case 5:
+        if ((timeLCD - lastLCD) >= LCD_UPDATE_INTERVAL) {
+          lastLCD = timeLCD;
+          lcd.setCursor(1, 0);
+          lcd.print("[ STATUS TAB ]");
+          lcd.setCursor(1, 1);
+          if (droneAdminStatus) lcd.print(" Drone Armed    ");
+          else lcd.print("Drone Disarmed");
         }
         break;
     }
