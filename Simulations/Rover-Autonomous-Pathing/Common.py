@@ -19,6 +19,14 @@ class Point:
 class OutOfBoundsError(Exception):
     pass
 
+class SearchForCornerStates(Enum):
+    MOVEBACKWARDSUNTILEDGE = 1
+    ALIGNWITHEDGE = 2
+    TURNRIGHT = 3
+    MOVEFORWARDSLIGHTLY = 4
+    MOVEBACKWARDSUNTILCORNER = 5
+
+
 class DecisionStates(Enum):
     IDLE = 1
     SEARCHFORCORNER = 2

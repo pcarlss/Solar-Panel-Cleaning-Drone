@@ -1,5 +1,5 @@
 from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
-from common import DecisionStates, RadioMessage
+from common import DecisionStates, RadioMessage, SearchForCornerStates
 
 
 class Rover:
@@ -13,6 +13,7 @@ class Rover:
         self.cleaning_motors = CleaningMotor()
 
         self.decision_state = DecisionStates.IDLE
+        self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILEDGE
         self.radio_message = RadioMessage.NOMESSAGE
 
         self.axle_length = 0.170 #170mm
@@ -49,12 +50,19 @@ class Rover:
 
     def search_for_corner(self):
         """Perform movements to find a corner of the solar panel."""
-        self.move_backward_until_edge()
-        self.align_with_edge()
-        self.turn_right(90)
-        self.move_forward_slightly()
-        self.move_backward_until_corner()
-        self.decision_state = DecisionStates.BEGINCLEANING
+        match self.search_for_corner_state:
+            case SearchForCornerStates.MOVEBACKWARDSUNTILEDGE:
+                self.move_backward_until_edge()
+            case SearchForCornerStates.ALIGNWITHEDGE:
+                self.align_with_edge()
+            case SearchForCornerStates.TURNRIGHT:
+                self.turn_right(90)
+            case SearchForCornerStates.MOVEFORWARDSLIGHTLY:
+                self.move_forward_slightly()
+            case SearchForCornerStates.MOVEBACKWARDSUNTILCORNER:
+                self.move_backward_until_corner()
+ 
+        #self.decision_state = DecisionStates.BEGINCLEANING -> move this inside move backwards until corner
 
     def initialize_cleaning(self):
         """Initialize IMU, start cleaning motors, and prepare for cleaning."""
@@ -105,4 +113,28 @@ class Rover:
             case DecisionStates.DONE:
                 self.when_done()
 
-        
+
+
+
+
+    def move_backward_until_edge():
+        #track1 backup on gradual pickup speed to 25% of max speed
+        #track2 backup on gradual pickup speed to 25% of max speed
+        # if any back limit switch hits, stop immediately
+        pass
+    def align_with_edge():
+        #if both back limit switch hits, stop
+        #if back right limit switch pair detects edge, stop, rotate ccw (might have to shift a lil fwd)
+        #if back left limit switch pair detects edge, stop, rotate cw
+        #adjust fwd and back so that the limit switches are on the edge
+        pass
+
+    def turn_right(deg):
+        #turn cw 
+        pass
+    def move_forward_slightly():
+        pass
+
+    def move_backward_until_corner():
+
+        pass
