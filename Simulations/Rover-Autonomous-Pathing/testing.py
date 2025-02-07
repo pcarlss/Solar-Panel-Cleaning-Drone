@@ -6,6 +6,11 @@ from components import DCMotorDiscrete, SimpleMotor, PIDController
 from area import SolarPanelArea
 from rover import Rover
 
+from error import GaussianProportionalError
+
+
+def error_test():
+    pass
 
 
 def visualization_test():

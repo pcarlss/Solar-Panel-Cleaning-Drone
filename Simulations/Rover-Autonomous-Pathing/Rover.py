@@ -18,7 +18,8 @@ class Rover:
 
         self.axle_length = 0.170 #170mm
         self.wheel_radius = 0.005 #5mm
-        
+
+
     def set_trajectory(self, desired_speed, desired_turn_rate):
         """
         Sets the velocity of the left and right motors
@@ -112,9 +113,6 @@ class Rover:
                 self.clean_inner_loops()
             case DecisionStates.DONE:
                 self.when_done()
-
-
-
 
 
     def move_backward_until_edge():
