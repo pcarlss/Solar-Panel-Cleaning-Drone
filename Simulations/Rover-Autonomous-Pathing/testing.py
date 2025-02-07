@@ -6,7 +6,77 @@ from components import DCMotorDiscrete, SimpleMotor, PIDController
 from area import SolarPanelArea
 from rover import Rover
 
-from error import GaussianProportionalError, GaussianDerivativeError
+from error import GaussianProportionalError, GaussianDerivativeError, GaussianNoise, GaussMarkovBias
+
+
+def imu_test():
+    dt=0.1
+
+    accel_func_list = [
+        lambda x: 0,
+        lambda x: -1,
+        lambda x: 0,
+        lambda x: 1,
+        lambda x: 0, 
+        lambda x: 1,
+        lambda x: 0,
+        lambda x: -1,
+        lambda x: 0
+    ]
+    condition_list = lambda x: [
+        x >= 0,
+        x >= 10,
+        x >= 11,
+        x >= 30,
+        x >= 31,
+        x >= 50,        
+        x >= 51,
+        x >= 70,
+        x >= 71,
+
+    ]
+    xs = np.arange(0,200,dt)
+    piecewise_accels = np.piecewise(xs, condlist=condition_list(xs), funclist=accel_func_list)
+    piecewise_velocities = np.cumsum(piecewise_accels*dt)
+    piecewise_positions = np.cumsum(piecewise_velocities*dt)
+
+    # error_model = GaussianProportionalError(k=0.5,s0=0.001,dt=dt)
+    error_model = GaussianNoise(20, 0.1)
+
+    measured_accels = error_model.apply(piecewise_accels)
+    measured_velocities = np.cumsum(measured_accels*dt)
+    measured_positions = np.cumsum(measured_velocities*dt)
+
+    fig, axs = plt.subplots(2,3)
+
+    axs[0,0].plot(xs, measured_accels, 'r-')
+    axs[0,0].plot(xs, piecewise_accels, 'k--')
+    axs[0,0].set_title("Acceleration")
+
+    axs[0,1].plot(xs, measured_velocities, 'r-')
+    axs[0,1].plot(xs, piecewise_velocities, 'k--')
+    axs[0,1].set_title("Velocity")
+
+    axs[0,2].plot(xs, measured_positions, 'r-')
+    axs[0,2].plot(xs, piecewise_positions, 'k--')
+    axs[0,2].set_title("Position")
+
+    axs[1,0].plot(xs, piecewise_accels-measured_accels)
+    axs[1,0].set_title("Acceleration Error")
+
+    axs[1,1].plot(xs, piecewise_velocities-measured_velocities)
+    axs[1,1].set_title("Velocity Error")
+
+    axs[1,2].plot(xs, piecewise_positions-measured_positions)
+    axs[1,2].set_title("Position Error")
+
+
+
+    plt.show()
+
+
+    pass
+
 
 
 def gauss_error_test():
@@ -140,7 +210,8 @@ if __name__ == '__main__':
     # visualization_test()
     # panel_test()
 
-    derivative_error_test()
+    # derivative_error_test()
+    imu_test()
 
 
 
