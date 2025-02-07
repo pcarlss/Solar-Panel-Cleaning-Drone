@@ -6,12 +6,39 @@ from components import DCMotorDiscrete, SimpleMotor, PIDController
 from area import SolarPanelArea
 from rover import Rover
 
-from error import GaussianProportionalError
+from error import GaussianProportionalError, GaussianDerivativeError
 
 
-def error_test():
+def gauss_error_test():
+    x = np.linspace(0, 10, 100)
+    real_y = np.sin(x)
+
+    errormodel = GaussianProportionalError(0.1, 0.005, q=0.1, minval=-1, maxval=1)
+    measure_y = np.array(list(map(lambda x: errormodel.apply(x, discretize=True), real_y,)))
+
+    plt.plot(x, real_y, 'k--')
+    plt.step(x, measure_y, 'r-')
+    plt.xlim(np.min(x), np.max(x))
+    plt.ylim(np.min(np.append(real_y, measure_y)),np.max(np.append(real_y, measure_y)))
+    plt.show()
     pass
 
+def derivative_error_test():
+    q = 0.01
+    x = np.arange(-2, 2, q)
+    real_y = np.sin(x**2)
+    real_y_prev = np.insert(real_y, 0, values=0)
+
+    errormodel = GaussianDerivativeError(0.05, s0=0.005, q=q)
+    measure_y = np.array(list(map(lambda x, x_prev: errormodel.apply(x, x_prev, discretize=True), real_y, real_y_prev)))
+
+    plt.step(x, measure_y, 'r-')
+    plt.plot(x, real_y, 'k--')
+
+    plt.xlim(np.min(x), np.max(x))
+    plt.ylim(np.min(np.append(real_y, measure_y)),np.max(np.append(real_y, measure_y)))
+    plt.show()
+    pass
 
 def visualization_test():
     # Working test code for scrolling visualization window -- not hooked up to any sim elements yet
@@ -112,6 +139,8 @@ if __name__ == '__main__':
     # motor_test()
     # visualization_test()
     # panel_test()
+
+    derivative_error_test()
 
 
 
