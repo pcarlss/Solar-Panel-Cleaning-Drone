@@ -25,7 +25,16 @@ class SearchForCornerStates(Enum):
     TURNRIGHT = 3
     MOVEFORWARDSLIGHTLY = 4
     MOVEBACKWARDSUNTILCORNER = 5
+    DONE = 6
 
+class OuterLoopStates(Enum):
+    FOLLOWEDGE = 1
+    TURNLEFT = 2
+    DONE = 3
+class InnerLoopStates(Enum):
+    FOLLOWPATH = 1
+    TURNLEFT = 2
+    DONE = 3
 
 class DecisionStates(Enum):
     IDLE = 1
