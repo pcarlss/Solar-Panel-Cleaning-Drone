@@ -1,32 +1,32 @@
+from time import sleep
 from area import SolarPanelArea
 from rover import Rover
-from common import DecisionStates, RadioMessage
+from common import RadioMessage,TIME_STEP,PANEL_DIMENSIONS,TOP_SPEED_MAPPING ,TOP_SPEED_CLEANING , ROVER_DIMENSIONS ,CLEANER_WIDTH , ACCELERATION_STEP  
 
 
 class Simulation:
     def __init__(self, width, length):
         self.solar_panel_area = SolarPanelArea(width, length)
         self.rover = Rover(self.solar_panel_area)
-    def place(self,rover,solar_panel):
-        return
+
+        
+
     
     def run(self):
-
-        self.rover.update_sensors()
-        self.solar_panel_area.update_rover_on_panel(self.rover.get_actual_data())
-        self.rover.make_decision()
+        self.rover.set_radio_message(RadioMessage.STARTCLEANINGOK)
+        while(self.rover.radio_message() != RadioMessage.CLEANINGDONETAKEMEAWAY):
+            self.rover.update_sensors()
+            self.solar_panel_area.update_rover_on_panel(self.rover.get_actual_data())
+            self.rover.make_decision()
+            sleep(TIME_STEP)
+        print("Simulation completed.")
         return
-
 
 
 # Define the main function
 def main():
-    # Define the dimensions of the solar panel area (e.g., 1000mm x 800mm)
-    width = 1000  # in millimeters
-    length = 800  # in millimeters
-
     # Create and run the simulation
-    simulation = Simulation(width, length)
+    simulation = Simulation(width = PANEL_DIMENSIONS[0], length = PANEL_DIMENSIONS[1])
     simulation.run()
 
 # Entry point for the script

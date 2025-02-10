@@ -56,6 +56,8 @@ class SolarPanelArea:
         pass
 
     def update_rover_on_panel(rover_actual_data):
+        #use data to calculate position
+        #render position
         pass
 
     

@@ -6,9 +6,11 @@ from dataclasses import dataclass
 IMU_ERROR = 0.05  # Example error factor for IMU
 TOP_SPEED_MAPPING = 20  # mm/s
 TOP_SPEED_CLEANING = 50  # mm/s
-ROVER_DIMENSIONS = (200, 170)  # mm (length, width)
+ROVER_DIMENSIONS = (170, 200)  # mm (WIDTH, LENGTH)
+PANEL_DIMENSIONS = (500,700) #MM (width, length)
 CLEANER_WIDTH = 150  # mm
 ACCELERATION_STEP = 5  # mm/s^2
+
 TIME_STEP = 10 # ms
 
 @dataclass
@@ -37,12 +39,12 @@ class InnerLoopStates(Enum):
     DONE = 3
 
 class DecisionStates(Enum):
-    IDLE = 1
-    SEARCHFORCORNER = 2
-    BEGINCLEANING = 3
-    CLEANOUTERLOOP = 4
-    CLEANINNERLOOPS = 5
-    DONE = 6
+    IDLE = 0
+    SEARCHFORCORNER = 1
+    BEGINCLEANING = 2
+    CLEANOUTERLOOP = 3
+    CLEANINNERLOOPS = 4
+    DONE = 5
 
 class RadioMessage(Enum):
     STARTCLEANINGOK = 1

@@ -9,16 +9,54 @@ class IMU:
         self.prev_orientation = 0       # Angle in degrees (yaw)
         self.prev_position = [0, 0]     # [x, y] position in mm
 
-    def getInfo(self):
+    def get_imu_data(self):
         return 
+    
+    def get_position(self,positional_information):
+        return
 
 class LimitSwitch:
-   def detect_edge(self, solar_panel_area, rover_position):
+   def is_pressed(self, solar_panel_area, rover_position):
+        #compute switch location
+        #check solarpanel area if switch detects edge
         return 
+   
+   def get_position(self,positional_information):
+        return
 
 class RotaryEncoder:
-    def getTrackVelocity(self):
+    def get_track_velocity(self):
         return
+    
+    def get_position(self,positional_information):
+        return
+
+
+class TrackMotor:
+    def power(self, pwm,direction):
+       return
+    
+    def get_real_speed(self):
+        return
+    def get_real_acceleration(self):
+        return
+    
+    def get_position(self,positional_information):
+        return
+   
+class CleaningMotor:
+    def __init__(self):
+        self.is_cleaning = False
+
+
+    def power(self, is_on:bool):
+       self.is_cleaning = is_on
+
+
+    def is_cleaning(self):
+        return self.is_cleaning
+
+
 
 class SimpleMotor():
     def __init__(self, Vmax=12, Vmin=-12, speedmax=10, speedmin=-10):
@@ -95,22 +133,6 @@ class DCMotorDiscrete:
         """Get the current angular velocity"""
         return self.x[1, 0]
 
-class TrackMotor:
-    def power(self, pwm,direction):
-       return
-   
-class CleaningMotor:
-    def __init__(self):
-        self.is_cleaning = False
-
-
-    def power(self, is_on:bool):
-       self.is_cleaning = is_on
-
-
-    def is_cleaning(self):
-        return self.is_cleaning
-    
 class PIDController:
     def __init__(self, Kp=1.0, Ki=0.0, Kd=0.0, dt=0.1):
         """

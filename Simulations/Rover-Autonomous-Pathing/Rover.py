@@ -4,14 +4,23 @@ from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessag
 
 class Rover:
     def __init__(self, solar_panel_area):
+
+        self.positional_information = {
+            "center_mass_position" : [0,0],
+            "orientation" : [0,0], #unit vector
+            "directional_vector" : [0,0], #should this be an unit vector or an adjustable vector (acceleration * orientation vector.... will leave to you @aidan)
+        }
+        
+
         self.imu = IMU()
         self.rotary_encoder_1 = RotaryEncoder()
         self.rotary_encoder_2 = RotaryEncoder()
-        self.limit_switch_array = [LimitSwitch() for _ in range(8)]
+        self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
         self.track_motor_1 = TrackMotor()
         self.track_motor_2 = TrackMotor()
         self.cleaning_motors = CleaningMotor()
 
+        #decision states
         self.decision_state = DecisionStates.IDLE
         self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILEDGE
         self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
@@ -39,16 +48,18 @@ class Rover:
     def update_sensors(self):
         pass
     
-    def get_actual_data(self,solar_panel_area):
-        
-        pass
+    def get_actual_data(self):
+
+        #update position,velocity,acceleration,
+        #get rover center point
+        return self.positional_information
 
     def get_sensor_data(self):
         """CONCRETE ACTION"""
         """Fetch sensor readings for decision-making."""
-        imu_data = self.imu.get_data()
-        encoder_1_pos = self.rotary_encoder_1.get_position()
-        encoder_2_pos = self.rotary_encoder_2.get_position()
+        imu_data = self.imu.get_imu_data()
+        encoder_1_pos = self.rotary_encoder_1.get_track_velocity()
+        encoder_2_pos = self.rotary_encoder_2.get_track_velocity()
         limit_switches = [switch.is_pressed() for switch in self.limit_switch_array]
         return imu_data, encoder_1_pos, encoder_2_pos, limit_switches
 
@@ -119,8 +130,6 @@ class Rover:
         #if opposing limit switch pairs are on, stop
 
         match self.decision_state:
-            case DecisionStates.IDLE:
-                pass
             case DecisionStates.SEARCHFORCORNER:
                 self.search_for_corner()
             case DecisionStates.BEGINCLEANING:
