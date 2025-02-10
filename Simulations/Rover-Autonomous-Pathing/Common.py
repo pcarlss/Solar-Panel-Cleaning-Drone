@@ -9,7 +9,7 @@ TOP_SPEED_CLEANING = 50  # mm/s
 ROVER_DIMENSIONS = (200, 170)  # mm (length, width)
 CLEANER_WIDTH = 150  # mm
 ACCELERATION_STEP = 5  # mm/s^2
-TIME_STEP = 1
+TIME_STEP = 10 # ms
 
 @dataclass
 class Point:
@@ -23,7 +23,7 @@ class SearchForCornerStates(Enum):
     MOVEBACKWARDSUNTILEDGE = 1
     ALIGNWITHEDGE = 2
     TURNRIGHT = 3
-    MOVEFORWARDSLIGHTLY = 4
+    ADJUSTBACKANDFORTH = 4
     MOVEBACKWARDSUNTILCORNER = 5
     DONE = 6
 

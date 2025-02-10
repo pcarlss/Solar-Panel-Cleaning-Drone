@@ -15,7 +15,7 @@ class Rover:
         self.decision_state = DecisionStates.IDLE
         self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILEDGE
         self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
-        self.inner_loop_states = InnerLoopStates.FOLLOWEDGE
+        self.inner_loop_states = InnerLoopStates.FOLLOWPATH
         self.radio_message = RadioMessage.NOMESSAGE
 
         self.axle_length = 0.170 #170mm
@@ -36,10 +36,15 @@ class Rover:
         self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
         self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
 
+    def update_sensors(self):
+        pass
+    
     def get_actual_data(self,solar_panel_area):
+        
         pass
 
     def get_sensor_data(self):
+        """CONCRETE ACTION"""
         """Fetch sensor readings for decision-making."""
         imu_data = self.imu.get_data()
         encoder_1_pos = self.rotary_encoder_1.get_position()
@@ -48,11 +53,12 @@ class Rover:
         return imu_data, encoder_1_pos, encoder_2_pos, limit_switches
 
     def set_radio_message(self, radio_message):
+        """CONCRETE ACTION"""
         """Set the current radio message."""
         self.radio_message = radio_message
 
     def search_for_corner(self):
-        """Perform movements to find a corner of the solar panel."""
+        """DECISION TREE LEVEL (2)"""
         match self.search_for_corner_state:
             case SearchForCornerStates.MOVEBACKWARDSUNTILEDGE:
                 self.move_backward_until_edge()
@@ -60,8 +66,8 @@ class Rover:
                 self.align_with_edge()
             case SearchForCornerStates.TURNRIGHT:
                 self.turn_right(90)
-            case SearchForCornerStates.MOVEFORWARDSLIGHTLY:
-                self.move_forward_slightly()
+            case SearchForCornerStates.ADJUSTBACKANDFORTH:
+                self.adjust_back_and_forth()
             case SearchForCornerStates.MOVEBACKWARDSUNTILCORNER:
                 self.move_backward_until_corner()
             case SearchForCornerStates.DONE:
@@ -70,13 +76,13 @@ class Rover:
         #self.decision_state = DecisionStates.BEGINCLEANING -> move this inside move backwards until corner
 
     def initialize_cleaning(self):
-        """Initialize IMU, start cleaning motors, and prepare for cleaning."""
+        """DECISION TREE LEVEL (2)"""
         self.imu.reset_position()
         self.cleaning_motors.start()
         self.decision_state = DecisionStates.CLEANOUTERLOOP
 
     def clean_outer_loop(self):
-        """Perform outer loop cleaning while tracking the panel edge."""
+        """DECISION TREE LEVEL (2)"""
         match self.outer_loop_states:
             case OuterLoopStates.FOLLOWEDGE:
                 self.follow_edge()
@@ -86,7 +92,7 @@ class Rover:
                 self.decision_state = DecisionStates.CLEANINNERLOOPS
 
     def clean_inner_loops(self):
-        """Perform inner loop cleaning while maintaining alignment."""
+        """DECISION TREE LEVEL (2)"""
         match self.inner_loop_states:
             case InnerLoopStates.FOLLOWEDGE:
                 self.follow_inner_path()
@@ -97,17 +103,20 @@ class Rover:
 
 
     def when_done(self):
-        """Send completion message and stop all movements."""
+        """DECISION TREE LEVEL (2)"""
         self.set_radio_message(RadioMessage.CLEANINGDONETAKEMEAWAY)
         self.stop_motors()
         self.decision_state = DecisionStates.DONE
 
     def make_decision(self):
-        """Control rover actions based on its current decision state."""
+        """DECISION TREE HEAD (1)"""
         if self.radio_message == RadioMessage.NOMESSAGE:
             return
         elif self.radio_message == RadioMessage.STARTCLEANINGOK:
             self.decision_state = DecisionStates.SEARCHFORCORNER
+
+      
+        #if opposing limit switch pairs are on, stop
 
         match self.decision_state:
             case DecisionStates.IDLE:
@@ -125,11 +134,13 @@ class Rover:
 
 
     def move_backward_until_edge(self):
+        """CONCRETE ACTION"""
         #track1 backup on gradual pickup speed to 25% of max speed
         #track2 backup on gradual pickup speed to 25% of max speed
         # if any back limit switch hits, stop immediately
         pass
     def align_with_edge(self):
+        """CONCRETE ACTION"""
         #if both back limit switch hits, stop
         #if back right limit switch pair detects edge, stop, rotate ccw (might have to shift a lil fwd)
         #if back left limit switch pair detects edge, stop, rotate cw
@@ -137,33 +148,44 @@ class Rover:
         pass
 
     def turn_right(self,deg):
+        """CONCRETE ACTION"""
         #turn cw (might have to shift a lil fwd)
         pass
     def turn_left(self,deg):
+        """CONCRETE ACTION"""
         #turn ccw (might have to shift a lil fwd)
         pass
 
-    def move_forward_slightly(self):
+    def adjust_back_and_forth(self):
+        """CONCRETE ACTION"""
+        #adjust back and forth a lil bit until half of the pair of back sensors read panel, other half reads outside
         pass
 
     def move_backward_until_corner(self):
-
+        """CONCRETE ACTION"""
+        #track1 & track2 backup until hits corner
         pass
 
     def follow_edge(self):
+        """CONCRETE ACTION"""
+        #move fwd while maintaining alignment with limit switches
+        #use imu to validate alignment & turning angles
+        #track distance traveled
         pass
 
     def follow_inner_path(self):
+        """CONCRETE ACTION"""
+        #use imu to verify alignment
+        #track distance traveled
         pass
 
     def stop_motors(self): 
+        """CONCRETE ACTION"""
         self.cleaning_motors.stop()
         self.track_motor_1.stop()
         self.track_motor_2.stop()
     
-    def get_actual_data(self,solar_panel_area):
-        pass
+ 
+            
 
-    def get_sensor_data(self):
-        pass
 

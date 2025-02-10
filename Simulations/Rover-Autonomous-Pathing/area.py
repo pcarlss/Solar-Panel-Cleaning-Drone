@@ -52,10 +52,10 @@ class SolarPanelArea:
         return self.position_array[int(round(x/self.xstep))][int(round(y/self.ystep))]
     
 
-    def get_random_starting_location(self):
+    def get_random_starting_location(self,rover):
         pass
 
-    def update_rover_on_panel(rover_actual_position):
+    def update_rover_on_panel(rover_actual_data):
         pass
 
     

@@ -11,6 +11,10 @@ class Simulation:
         return
     
     def run(self):
+
+        self.rover.update_sensors()
+        self.solar_panel_area.update_rover_on_panel(self.rover.get_actual_data())
+        self.rover.make_decision()
         return
 
 
