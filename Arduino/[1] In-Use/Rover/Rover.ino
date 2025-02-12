@@ -14,13 +14,19 @@ const int limitSwitchPins[LIMIT_SWITCH_COUNT] = {2, 3, 8, 9, 10, 11, 12, 13};
 #define IMU_SDA A4
 #define IMU_SCL A5
 
-// Enumeration for decision states
+// Enums for state management
 enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
-DecisionStates decisionState = IDLE;
-
-// Enumeration for search states
 enum SearchForCornerStates { MOVEBACKWARDSUNTILEDGE, ALIGNWITHEDGE, TURNRIGHT, ADJUSTBACKANDFORTH, MOVEBACKWARDSUNTILCORNER, SEARCHDONE };
+enum OuterLoopStates { FOLLOWEDGE, TURNLEFT, OUTERDONE };
+enum InnerLoopStates { FOLLOWINNERPATH, INNERDONE };
+enum RadioMessage { NOMESSAGE, STARTCLEANINGOK, CLEANINGDONETAKEMEAWAY };
+
+// State variables
+DecisionStates decisionState = IDLE;
 SearchForCornerStates searchForCornerState = MOVEBACKWARDSUNTILEDGE;
+OuterLoopStates outerLoopState = FOLLOWEDGE;
+InnerLoopStates innerLoopState = FOLLOWINNERPATH;
+RadioMessage radioMessage = NOMESSAGE;
 
 // Motor speed control variables
 int l_speed = 0;
@@ -29,8 +35,9 @@ int r_speed = 0;
 // Function prototypes
 void updatePosition();
 void setTrajectory(float desiredSpeed, float desiredTurnRate);
-void updateMotors();
 void updateSensors();
+void makeDecision();
+void updateMotors();
 void searchForCorner();
 void initializeCleaning();
 void cleanOuterLoop();
@@ -68,30 +75,23 @@ void loop() {
     updateSensors();
     updatePosition();
     makeDecision();
-    updateMotors();
 }
 
+// Update position based on motor speed
 void updatePosition() {
-    // Simulated position update based on motor speed
     Serial.print("Updating position: L Speed = ");
     Serial.print(l_speed);
     Serial.print(", R Speed = ");
     Serial.println(r_speed);
 }
 
+// Set trajectory for motion
 void setTrajectory(float desiredSpeed, float desiredTurnRate) {
     l_speed = (desiredSpeed - (0.170 * desiredTurnRate) / 2) / 0.005;
     r_speed = (desiredSpeed + (0.170 * desiredTurnRate) / 2) / 0.005;
 }
 
-void updateMotors() {
-    analogWrite(MOTOR_L_PWM, abs(l_speed));
-    analogWrite(MOTOR_R_PWM, abs(r_speed));
-
-    digitalWrite(MOTOR_L_DIR, l_speed >= 0 ? HIGH : LOW);
-    digitalWrite(MOTOR_R_DIR, r_speed >= 0 ? HIGH : LOW);
-}
-
+// Read sensors (limit switches)
 void updateSensors() {
     Serial.print("Limit Switches: ");
     for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
@@ -101,6 +101,7 @@ void updateSensors() {
     Serial.println();
 }
 
+// Main decision-making function
 void makeDecision() {
     switch (decisionState) {
         case SEARCHFORCORNER:
@@ -121,8 +122,17 @@ void makeDecision() {
         default:
             break;
     }
+
+    // Update motors based on decision logic (to be implemented)
+    updateMotors();
 }
 
+// Motor update logic (to be implemented later)
+void updateMotors() {
+    // TODO: Implement motor control based on state
+}
+
+// Search for the corner logic
 void searchForCorner() {
     switch (searchForCornerState) {
         case MOVEBACKWARDSUNTILEDGE:
@@ -146,25 +156,46 @@ void searchForCorner() {
     }
 }
 
+// Initialize cleaning process
 void initializeCleaning() {
     Serial.println("Starting cleaning process.");
     decisionState = CLEANOUTERLOOP;
 }
 
+// Outer loop cleaning
 void cleanOuterLoop() {
-    followEdge();
-    decisionState = CLEANINNERLOOPS;
+    switch (outerLoopState) {
+        case FOLLOWEDGE:
+            followEdge();
+            break;
+        case TURNLEFT:
+            turnLeft(90);
+            break;
+        case OUTERDONE:
+            decisionState = CLEANINNERLOOPS;
+            break;
+    }
 }
 
+// Inner loop cleaning
 void cleanInnerLoops() {
-    followInnerPath();
-    decisionState = DONE;
+    switch (innerLoopState) {
+        case FOLLOWINNERPATH:
+            followInnerPath();
+            break;
+        case INNERDONE:
+            decisionState = DONE;
+            break;
+    }
 }
 
+// End of cleaning process
 void whenDone() {
     Serial.println("Cleaning Done.");
     stopMotors();
 }
+
+// Concrete actions
 
 void moveBackwardUntilEdge() {
     Serial.println("Moving backward until edge detected.");
