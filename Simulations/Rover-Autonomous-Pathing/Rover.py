@@ -1,4 +1,4 @@
-from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
+from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete, PIDController
 from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates
 from dataclasses import dataclass
 from typing import List
@@ -30,6 +30,9 @@ class Rover:
         self.track_motor_l = DCMotorDiscrete()
         self.track_motor_r = DCMotorDiscrete()
         self.cleaning_motors = CleaningMotor()
+
+        self.track_pid_l = PIDController()
+        self.track_pid_r = PIDController()
 
         #decision states
         self.decision_state = DecisionStates.IDLE
@@ -99,6 +102,7 @@ class Rover:
         self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
 
     def update_motors(self):
+        self.track_pid_l.calculate()
         
         pass
 
