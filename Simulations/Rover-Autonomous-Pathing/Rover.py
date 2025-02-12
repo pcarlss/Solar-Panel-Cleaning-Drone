@@ -3,21 +3,25 @@ from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessag
 
 
 class Rover:
-    def __init__(self, solar_panel_area):
+    def __init__(self, solar_panel_area, time_step):
 
+        # X,Y,Theta and their derivatives
         self.positional_information = {
             "center_mass_position" : [0,0],
-            "orientation" : [0,0], #unit vector
+            "orientation" : [1,0], #unit vector
             "directional_vector" : [0,0], #should this be an unit vector or an adjustable vector (acceleration * orientation vector.... will leave to you @aidan)
+            "linear_velocity": 0, #V, velocity of the center of mass
+            "turn_rate": 0, #omega, d(theta)/dt of the orientation vector
+            "linear_accel": 0, #Linear acceleration, dV/dt of the center of mass
+            "turn_accel": 0 #alpha, d(omega)/dt of the orientation vector
         }
-        
 
         self.imu = IMU()
-        self.rotary_encoder_1 = RotaryEncoder()
-        self.rotary_encoder_2 = RotaryEncoder()
+        self.rotary_encoder_l = RotaryEncoder()
+        self.rotary_encoder_r = RotaryEncoder()
         self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
-        self.track_motor_1 = TrackMotor()
-        self.track_motor_2 = TrackMotor()
+        self.track_motor_l = SimpleMotor()
+        self.track_motor_r = SimpleMotor()
         self.cleaning_motors = CleaningMotor()
 
         #decision states
@@ -27,8 +31,21 @@ class Rover:
         self.inner_loop_states = InnerLoopStates.FOLLOWPATH
         self.radio_message = RadioMessage.NOMESSAGE
 
+        #physical constants
         self.axle_length = 0.170 #170mm
         self.wheel_radius = 0.005 #5mm
+        self.top_speed = 1 # 1 m/s
+        self.top_turn_rate = 1 # rad/s
+
+        #Simulation constants
+        self.time_step = time_step
+
+    def update_position(self):
+        l_speed = self.track_motor_l.get_speed()
+        r_speed = self.track_motor_l.get_speed()
+
+        linear_speed = (l_speed + r_speed) / 2
+        turn_rate = (l_speed - r_speed) / 2
 
 
     def set_trajectory(self, desired_speed, desired_turn_rate):
@@ -45,11 +62,14 @@ class Rover:
         self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
         self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
 
+    def update_motors(self):
+        
+        pass
+
     def update_sensors(self):
         pass
     
     def get_actual_data(self):
-
         #update position,velocity,acceleration,
         #get rover center point
         return self.positional_information
@@ -58,10 +78,10 @@ class Rover:
         """CONCRETE ACTION"""
         """Fetch sensor readings for decision-making."""
         imu_data = self.imu.get_imu_data()
-        encoder_1_pos = self.rotary_encoder_1.get_track_velocity()
-        encoder_2_pos = self.rotary_encoder_2.get_track_velocity()
+        encoder_l_pos = self.rotary_encoder_l.get_track_velocity()
+        encoder_r_pos = self.rotary_encoder_r.get_track_velocity()
         limit_switches = [switch.is_pressed() for switch in self.limit_switch_array]
-        return imu_data, encoder_1_pos, encoder_2_pos, limit_switches
+        return imu_data, encoder_l_pos, encoder_r_pos, limit_switches
 
     def set_radio_message(self, radio_message):
         """CONCRETE ACTION"""
@@ -112,7 +132,6 @@ class Rover:
             case InnerLoopStates.DONE:
                 self.decision_state = DecisionStates.DONE
 
-
     def when_done(self):
         """DECISION TREE LEVEL (2)"""
         self.set_radio_message(RadioMessage.CLEANINGDONETAKEMEAWAY)
@@ -147,7 +166,10 @@ class Rover:
         #track1 backup on gradual pickup speed to 25% of max speed
         #track2 backup on gradual pickup speed to 25% of max speed
         # if any back limit switch hits, stop immediately
+        self.set_trajectory()
         pass
+
+
     def align_with_edge(self):
         """CONCRETE ACTION"""
         #if both back limit switch hits, stop
@@ -191,8 +213,8 @@ class Rover:
     def stop_motors(self): 
         """CONCRETE ACTION"""
         self.cleaning_motors.stop()
-        self.track_motor_1.stop()
-        self.track_motor_2.stop()
+        self.track_motor_l.stop()
+        self.track_motor_r.stop()
     
  
             
