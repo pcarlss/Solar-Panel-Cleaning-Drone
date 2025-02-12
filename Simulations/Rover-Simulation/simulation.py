@@ -16,8 +16,8 @@ class Simulation:
     def run(self):
         self.rover.set_radio_message(RadioMessage.STARTCLEANINGOK)
         while(self.rover.radio_message() != RadioMessage.CLEANINGDONETAKEMEAWAY):
-            self.rover.update_sensors()
             self.solar_panel_area.update_rover_on_panel(self.rover.get_actual_data())
+            self.rover.update_sensors()
             self.rover.make_decision()
             self.sim_runtime_ms += TIME_STEP 
             if self.visual:

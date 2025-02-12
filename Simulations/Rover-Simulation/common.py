@@ -11,7 +11,7 @@ PANEL_DIMENSIONS = (500,700) #MM (width, length)
 CLEANER_WIDTH = 150  # mm
 ACCELERATION_STEP = 5  # mm/s^2
 
-TIME_STEP = 10 # ms
+TIME_STEP = 10/1000 # s
 
 @dataclass
 class Point:
