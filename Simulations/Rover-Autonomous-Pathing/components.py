@@ -128,6 +128,19 @@ class DCMotorDiscrete:
         self.voltage = max(min(voltage, self.Vmax), self.Vmin) 
         self.x = self.Ad @ self.x + self.Bd * self.voltage
         return self.x[1, 0]  # Return angular velocity
+
+    def get_angular_acceleration(self):
+        """
+        Calculate instantaneous angular acceleration using:
+        alpha = (K*i - b*w)/J
+        Where:
+        - i = current (from state vector)
+        - w = angular velocity (from state vector)
+        """
+        current = self.x[0, 0]      # First state element: current [A]
+        angular_velocity = self.x[1, 0]  # Second state element: angular velocity [rad/s]
+        
+        return (self.K * current - self.b * angular_velocity) / self.J
     
     def get_speed(self):
         """Get the current angular velocity"""
