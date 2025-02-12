@@ -203,6 +203,19 @@ def panel_test():
     a = SolarPanelArea(1, 1, 10)
     print(a.locate_round(0.74, 0.76)) 
 
+def rover_movement_test():
+    panel = SolarPanelArea(10,10,1000)
+
+
+    rover = Rover(panel, 0.01)
+
+    rover.set_trajectory(1,1)
+    rover.update_motors()
+
+    rover.update_position()
+    print(rover.positional_information)
+
+
 if __name__ == '__main__':
     # Write which test you want to run here
 
@@ -211,8 +224,9 @@ if __name__ == '__main__':
     # panel_test()
 
     # derivative_error_test()
-    imu_test()
+    # imu_test()
 
+    rover_movement_test()
 
 
     pass

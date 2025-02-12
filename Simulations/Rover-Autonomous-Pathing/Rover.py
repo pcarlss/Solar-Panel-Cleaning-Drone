@@ -1,27 +1,34 @@
 from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
 from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates
+from dataclasses import dataclass
+from typing import List
+from scipy.ndimage import rotate
+import numpy as np
 
+
+@dataclass()
+class PositionalInformation():
+    position: np.ndarray[2, float]
+    orientation: np.ndarray[2, float]
+    linear_velocity: float = 0
+    turn_rate: float = 0
+    linear_accel: float = 0
+    turn_accel: float = 0
 
 class Rover:
     def __init__(self, solar_panel_area, time_step):
 
         # X,Y,Theta and their derivatives
-        self.positional_information = {
-            "center_mass_position" : [0,0],
-            "orientation" : [1,0], #unit vector
-            "directional_vector" : [0,0], #should this be an unit vector or an adjustable vector (acceleration * orientation vector.... will leave to you @aidan)
-            "linear_velocity": 0, #V, velocity of the center of mass
-            "turn_rate": 0, #omega, d(theta)/dt of the orientation vector
-            "linear_accel": 0, #Linear acceleration, dV/dt of the center of mass
-            "turn_accel": 0 #alpha, d(omega)/dt of the orientation vector
-        }
+        self.positional_information = PositionalInformation(
+            position=np.array([0,0]), 
+            orientation=np.array([1,0]))
 
         self.imu = IMU()
         self.rotary_encoder_l = RotaryEncoder()
         self.rotary_encoder_r = RotaryEncoder()
         self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
-        self.track_motor_l = SimpleMotor()
-        self.track_motor_r = SimpleMotor()
+        self.track_motor_l = DCMotorDiscrete()
+        self.track_motor_r = DCMotorDiscrete()
         self.cleaning_motors = CleaningMotor()
 
         #decision states
@@ -40,13 +47,42 @@ class Rover:
         #Simulation constants
         self.time_step = time_step
 
+        #desired setpoints for various things
+        self.l_desired_speed = 0
+        self.r_desired_speed = 0
+
     def update_position(self):
         l_speed = self.track_motor_l.get_speed()
         r_speed = self.track_motor_l.get_speed()
 
-        linear_speed = (l_speed + r_speed) / 2
-        turn_rate = (l_speed - r_speed) / 2
+        l_accel = self.track_motor_l.get_angular_acceleration()
+        r_accel = self.track_motor_r.get_angular_acceleration()
 
+        linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
+        turn_rate = (l_speed - r_speed) * self.wheel_radius / 2
+
+        linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
+        turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
+
+        d_theta = turn_rate * self.time_step # rotation amount, radians
+        d_s = linear_velocity * self.time_step # distance amount, m
+
+        # Rotate d_theta degrees
+        x, y = self.positional_information.orientation
+        x = x*np.cos(d_theta) - y*np.sin(d_theta)
+        y = x*np.sin(d_theta) + y*np.cos(d_theta)
+        self.positional_information.orientation = np.array([x, y])
+
+        # Move d_s distance
+        self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+
+
+        # Update the rest of the values
+
+        self.positional_information.linear_accel = linear_accel
+        self.positional_information.linear_velocity = linear_velocity
+        self.positional_information.turn_rate = turn_rate
+        self.positional_information.turn_accel = turn_accel
 
     def set_trajectory(self, desired_speed, desired_turn_rate):
         """

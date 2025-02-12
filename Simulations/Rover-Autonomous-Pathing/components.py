@@ -12,11 +12,15 @@ class IMU:
     def get_imu_data(self):
         return 
     
-    def get_position(self,positional_information):
+    def get_position(self, positional_information):
         return
 
 class LimitSwitch:
-   def is_pressed(self, solar_panel_area, rover_position):
+   def __init__(self, solar_panel_area):
+       self.solar_panel_area = solar_panel_area
+
+
+   def is_pressed(self, rover_position):
         #compute switch location
         #check solarpanel area if switch detects edge
         return 
