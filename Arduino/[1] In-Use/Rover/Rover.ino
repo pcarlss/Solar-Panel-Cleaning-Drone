@@ -2,17 +2,34 @@
 
 // Define motor pins
 #define MOTOR_L_PWM 5
-#define MOTOR_L_DIR 4
-#define MOTOR_R_PWM 6
-#define MOTOR_R_DIR 7
+#define MOTOR_L_IN1 4
+#define MOTOR_L_IN2 3
 
+#define MOTOR_R_PWM 6
+#define MOTOR_R_IN1 7
+#define MOTOR_R_IN2 8
+
+// Define cleaning motor pin
+#define CLEANING_MOTOR_ENABLE 8
 // Define limit switch pins
 #define LIMIT_SWITCH_COUNT 8
-const int limitSwitchPins[LIMIT_SWITCH_COUNT] = {2, 3, 8, 9, 10, 11, 12, 13};
+#define LIMIT_SWITCH_PIN_SELECTOR_0 0
+#define LIMIT_SWITCH_PIN_SELECTOR_1 1
+#define LIMIT_SWITCH_PIN_SELECTOR_2 2
+#define LIMIT_SWITCH_PIN_OUTPUT 3
 
 // IMU (Placeholder for actual IMU library)
 #define IMU_SDA A4
 #define IMU_SCL A5
+
+// Rotary Encoders
+#define ENCODER_L_A 18
+#define ENCODER_L_B 19
+#define ENCODER_R_A 20
+#define ENCODER_R_B 21
+
+volatile long leftEncoderCount = 0;
+volatile long rightEncoderCount = 0;
 
 // Enums for state management
 enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
@@ -32,10 +49,21 @@ RadioMessage radioMessage = NOMESSAGE;
 int l_speed = 0;
 int r_speed = 0;
 
+// Struct to store sensor data
+struct SensorData {
+    bool limitSwitches[LIMIT_SWITCH_COUNT];  // Store limit switch states
+    float accelX, accelY, accelZ;            // IMU accelerometer values
+    float gyroX, gyroY, gyroZ;               // IMU gyroscope values
+    long leftEncoder;                         // Left encoder count
+    long rightEncoder;                        // Right encoder count
+};
+
+SensorData sensorData; // Global sensor data struct
+
 // Function prototypes
+void updateData();
 void updatePosition();
 void setTrajectory(float desiredSpeed, float desiredTurnRate);
-void updateSensors();
 void makeDecision();
 void updateMotors();
 void searchForCorner();
@@ -52,6 +80,8 @@ void moveBackwardUntilCorner();
 void followEdge();
 void followInnerPath();
 void stopMotors();
+void encoderISR_L();
+void encoderISR_R();
 
 void setup() {
     Serial.begin(115200);
@@ -64,20 +94,88 @@ void setup() {
     pinMode(MOTOR_R_DIR, OUTPUT);
 
     // Set limit switch pins as input
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        pinMode(limitSwitchPins[i], INPUT_PULLUP);
-    }
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
+
+    // Set up rotary encoders with interrupts
+    pinMode(ENCODER_L_A, INPUT_PULLUP);
+    pinMode(ENCODER_L_B, INPUT_PULLUP);
+    pinMode(ENCODER_R_A, INPUT_PULLUP);
+    pinMode(ENCODER_R_B, INPUT_PULLUP);
+
+    attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
     Serial.println("Rover Initialized.");
 }
 
 void loop() {
-    updateSensors();
+    updateData();
     updatePosition();
     makeDecision();
 }
 
-// Update position based on motor speed
+// **Update All Sensor Data**
+void updateData() {
+    // Read limit switch states
+     for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
+        // Calculate the selector pin values based on the current index
+        int selectorIndex = i / 2; // Select 1 bit for each multiplexer channel
+        int selectorBit = i % 2;   // Select low or high bit
+
+        // Write the selector pin values to the multiplexer
+        digitalWrite(limitSwitchPins[0], (selectorIndex & 0x01) ? HIGH : LOW); // Selector 0
+        digitalWrite(limitSwitchPins[1], (selectorIndex & 0x02) ? HIGH : LOW); // Selector 1
+        digitalWrite(limitSwitchPins[2], (selectorBit & 0x01) ? HIGH : LOW);   // Selector 2
+        delay(5); // make sure to read correct channel from mux
+        // Read the output from the multiplexer and store it in the array
+        sensorData.limitSwitches[i] = (digitalRead(LIMIT_SWITCH_PIN_OUTPUT) == LOW); // Assumes active-low switches
+    }
+    // Placeholder IMU Data (Replace with actual IMU readings)
+    sensorData.accelX = 0.0;
+    sensorData.accelY = 0.0;
+    sensorData.accelZ = 0.0;
+    sensorData.gyroX = 0.0;
+    sensorData.gyroY = 0.0;
+    sensorData.gyroZ = 0.0;
+
+    // Read encoder counts
+    sensorData.leftEncoder = leftEncoderCount;
+    sensorData.rightEncoder = rightEncoderCount;
+
+    // Debug print sensor data
+    Serial.print("Encoders: L=");
+    Serial.print(sensorData.leftEncoder);
+    Serial.print(", R=");
+    Serial.print(sensorData.rightEncoder);
+    Serial.print(" | Limit Switches: ");
+    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
+        Serial.print(sensorData.limitSwitches[i]);
+        Serial.print(" ");
+    }
+    Serial.println();
+}
+
+// **Interrupt Service Routines for Encoders**
+void encoderISR_L() {
+    if (digitalRead(ENCODER_L_A) == digitalRead(ENCODER_L_B)) {
+        leftEncoderCount++;
+    } else {
+        leftEncoderCount--;
+    }
+}
+
+void encoderISR_R() {
+    if (digitalRead(ENCODER_R_A) == digitalRead(ENCODER_R_B)) {
+        rightEncoderCount++;
+    } else {
+        rightEncoderCount--;
+    }
+}
+
+// **Update position based on encoder readings**
 void updatePosition() {
     Serial.print("Updating position: L Speed = ");
     Serial.print(l_speed);
@@ -85,23 +183,13 @@ void updatePosition() {
     Serial.println(r_speed);
 }
 
-// Set trajectory for motion
+// **Set motion trajectory**
 void setTrajectory(float desiredSpeed, float desiredTurnRate) {
     l_speed = (desiredSpeed - (0.170 * desiredTurnRate) / 2) / 0.005;
     r_speed = (desiredSpeed + (0.170 * desiredTurnRate) / 2) / 0.005;
 }
 
-// Read sensors (limit switches)
-void updateSensors() {
-    Serial.print("Limit Switches: ");
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        Serial.print(digitalRead(limitSwitchPins[i]));
-        Serial.print(" ");
-    }
-    Serial.println();
-}
-
-// Main decision-making function
+// **Main decision-making function**
 void makeDecision() {
     switch (decisionState) {
         case SEARCHFORCORNER:
@@ -123,136 +211,18 @@ void makeDecision() {
             break;
     }
 
-    // Update motors based on decision logic (to be implemented)
     updateMotors();
 }
 
-// Motor update logic (to be implemented later)
+// **Motor update logic (to be implemented)**
 void updateMotors() {
     // TODO: Implement motor control based on state
 }
 
-// Search for the corner logic
-void searchForCorner() {
-    switch (searchForCornerState) {
-        case MOVEBACKWARDSUNTILEDGE:
-            moveBackwardUntilEdge();
-            break;
-        case ALIGNWITHEDGE:
-            alignWithEdge();
-            break;
-        case TURNRIGHT:
-            turnRight(90);
-            break;
-        case ADJUSTBACKANDFORTH:
-            adjustBackAndForth();
-            break;
-        case MOVEBACKWARDSUNTILCORNER:
-            moveBackwardUntilCorner();
-            break;
-        case SEARCHDONE:
-            decisionState = BEGINCLEANING;
-            break;
-    }
-}
-
-// Initialize cleaning process
-void initializeCleaning() {
-    Serial.println("Starting cleaning process.");
-    decisionState = CLEANOUTERLOOP;
-}
-
-// Outer loop cleaning
-void cleanOuterLoop() {
-    switch (outerLoopState) {
-        case FOLLOWEDGE:
-            followEdge();
-            break;
-        case TURNLEFT:
-            turnLeft(90);
-            break;
-        case OUTERDONE:
-            decisionState = CLEANINNERLOOPS;
-            break;
-    }
-}
-
-// Inner loop cleaning
-void cleanInnerLoops() {
-    switch (innerLoopState) {
-        case FOLLOWINNERPATH:
-            followInnerPath();
-            break;
-        case INNERDONE:
-            decisionState = DONE;
-            break;
-    }
-}
-
-// End of cleaning process
-void whenDone() {
-    Serial.println("Cleaning Done.");
-    stopMotors();
-}
-
-// Concrete actions
-
-void moveBackwardUntilEdge() {
-    Serial.println("Moving backward until edge detected.");
-    setTrajectory(-0.25, 0);
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        if (digitalRead(limitSwitchPins[i]) == LOW) {
-            stopMotors();
-            searchForCornerState = ALIGNWITHEDGE;
-            return;
-        }
-    }
-}
-
-void alignWithEdge() {
-    Serial.println("Aligning with edge.");
-    searchForCornerState = TURNRIGHT;
-}
-
-void turnRight(int deg) {
-    Serial.print("Turning right ");
-    Serial.print(deg);
-    Serial.println(" degrees.");
-    setTrajectory(0, 0.5);
-    delay(1000);
-    stopMotors();
-    searchForCornerState = ADJUSTBACKANDFORTH;
-}
-
-void turnLeft(int deg) {
-    Serial.print("Turning left ");
-    Serial.print(deg);
-    Serial.println(" degrees.");
-    setTrajectory(0, -0.5);
-    delay(1000);
-    stopMotors();
-}
-
-void adjustBackAndForth() {
-    Serial.println("Adjusting back and forth.");
-    searchForCornerState = MOVEBACKWARDSUNTILCORNER;
-}
-
-void moveBackwardUntilCorner() {
-    Serial.println("Moving backward until corner detected.");
-    searchForCornerState = SEARCHDONE;
-}
-
-void followEdge() {
-    Serial.println("Following edge.");
-}
-
-void followInnerPath() {
-    Serial.println("Following inner path.");
-}
-
+// **Stopping Motors**
 void stopMotors() {
     Serial.println("Stopping motors.");
     analogWrite(MOTOR_L_PWM, 0);
     analogWrite(MOTOR_R_PWM, 0);
 }
+

@@ -215,6 +215,13 @@ def rover_movement_test():
     rover.update_position()
     print(rover.positional_information)
 
+def panel_display_test():
+    panel = SolarPanelArea(500, 700, 1)  # 10x10 panel, 20 divisions
+
+    for x in np.linspace(0, 500, 250):  # Simulate rover moving in x direction
+        panel.update_rover_on_panel((x, 150))  # Rover moves at y=5
+        plt.pause(0.1)  # Small delay to visualize movement
+
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -226,7 +233,7 @@ if __name__ == '__main__':
     # derivative_error_test()
     # imu_test()
 
-    rover_movement_test()
+    # rover_movement_test()
 
-
+    panel_display_test()
     pass
