@@ -29,11 +29,52 @@ class LimitSwitch:
         return
 
 class RotaryEncoder:
-    def get_track_velocity(self):
-        return
+    def __init__(self, resolution=20, time_step=0.01, zero_time=0.5, reverse_timeout_window=5):
+        self.min_angle = 2*np.pi/resolution
+        self.zero_time = zero_time
+        self.time_step = time_step        
+        self.discrete_pos = 0
+        self.position = 0
+        self.velocity = 0
+        self.time_between = 0
+        self.prev_step = 0
+        self.reverse_timeout_window = reverse_timeout_window
+        self.since_last_change = 0
+        pass
     
-    def get_position(self,positional_information):
-        return
+
+    def get_track_velocity(self, track_vel):
+        self.position += track_vel * self.time_step
+        self.time_between += self.time_step
+        step = (self.position - self.discrete_pos) // self.min_angle
+        
+        
+        if (self.prev_step) and self.prev_step == -1*step and self.since_last_change > self.reverse_timeout_window:
+            self.discrete_pos = self.discrete_pos + step*self.min_angle # update previous known position
+            self.velocity = 0
+            self.time_between = 0
+            self.since_last_change = 0
+
+        elif step:
+            self.discrete_pos = self.discrete_pos + step*self.min_angle # update previous known position
+            self.velocity = step*self.min_angle/self.time_between
+            self.time_between = 0
+            self.prev_step = step
+            self.since_last_change = 0
+        
+        # Zeroes out the rotary encoder velocity
+        elif self.time_between > self.zero_time:
+            self.velocity = 0
+            self.time_between = self.zero_time
+            
+        self.since_last_change += 1
+            
+        print(f"READOUT: {step}, {self.velocity}")
+        # self.prev_step = step # Try moving this to only when it steps?
+
+        return self.velocity, self.discrete_pos
+    
+
 
 
 class TrackMotor:

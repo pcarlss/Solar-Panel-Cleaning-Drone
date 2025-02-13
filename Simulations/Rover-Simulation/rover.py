@@ -14,12 +14,18 @@ class PositionalInformation():
     turn_rate: float = 0
     linear_accel: float = 0
     turn_accel: float = 0
+    l_speed: float = 0
+    r_speed: float = 0
 
 class Rover:
     def __init__(self, solar_panel_area, time_step):
 
         # X,Y,Theta and their derivatives
         self.positional_information = PositionalInformation(
+            position=np.array([0,0]), 
+            orientation=np.array([1,0]))
+        
+        self.estimated_pos = PositionalInformation(
             position=np.array([0,0]), 
             orientation=np.array([1,0]))
 
@@ -57,35 +63,46 @@ class Rover:
     def update_position(self):
         l_speed = self.track_motor_l.get_speed()
         r_speed = self.track_motor_r.get_speed()
+        
+        # Update the individual track velocities
+        self.positional_information.l_speed = l_speed
+        self.positional_information.r_speed = r_speed
 
         l_accel = self.track_motor_l.get_angular_acceleration()
         r_accel = self.track_motor_r.get_angular_acceleration()
 
         linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
         turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
-
-        turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
-
+        
         linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
         turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
 
         d_theta = turn_rate * self.time_step # rotation amount, radians
         d_s = linear_velocity * self.time_step # distance amount, m
-
+        
         # Rotate d_theta degrees
         x, y = self.positional_information.orientation
         new_x = x*np.cos(d_theta) - y*np.sin(d_theta)
         new_y = x*np.sin(d_theta) + y*np.cos(d_theta)
         self.positional_information.orientation = np.array([new_x, new_y])
 
+        if r_speed == l_speed:
+            # Prevent a divide by zero error
+            turn_radius = 0
+            d_theta = 0
+            self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+            
+        else:
+            # set the turn radius
+            turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
 
-        # Move d_s distance along a circle
-        # self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
-        # This is equivalent for some reason???
-        dist_x = x*np.cos(d_theta/2) - y*np.sin(d_theta/2)
-        dist_y = x*np.sin(d_theta/2) + y*np.cos(d_theta/2)
-        
-        self.positional_information.position = self.positional_information.position + np.array([dist_x, dist_y]) * 2*turn_radius*np.sin(d_theta/2)
+            # Move d_s distance along a circle
+            # self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+            dist_x = x*np.cos(d_theta/2) - y*np.sin(d_theta/2)
+            dist_y = x*np.sin(d_theta/2) + y*np.cos(d_theta/2)
+            
+            
+            self.positional_information.position = self.positional_information.position + np.array([dist_x, dist_y]) * 2*turn_radius*np.sin(d_theta/2)
 
         # Update the rest of the values
 

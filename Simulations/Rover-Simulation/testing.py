@@ -1,8 +1,9 @@
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import signal
 from matplotlib.animation import FuncAnimation
-from components import DCMotorDiscrete, SimpleMotor, PIDController
+from components import DCMotorDiscrete, SimpleMotor, PIDController, RotaryEncoder
 from area import SolarPanelArea
 from rover import Rover
 
@@ -205,15 +206,19 @@ def panel_test():
 
 def rover_movement_test():
     panel = SolarPanelArea(10,10,1000)
-    plot_xs = [0]
-    plot_ys = [0]
+    plot_xs = []
+    plot_ys = []
+    
+    time_step = 0.001
+    time_stop = 10
+    time_arange = np.arange(0, time_stop, time_step)
 
-    rover = Rover(panel, 0.01)
+    rover = Rover(panel, time_step)
+    rover.set_trajectory(0.05, 1)
 
-    rover.set_trajectory(0.05,1)
     print(f"Desired speeds: {rover.l_desired_speed, rover.r_desired_speed}")
 
-    for t in range(100000):
+    for t in time_arange:
         rover.update_motors()
         rover.update_position()
         # print(f"Motor State: {rover.update_motors()}")
@@ -221,12 +226,36 @@ def rover_movement_test():
 
         plot_xs.append(rover.positional_information.position[0])
         plot_ys.append(rover.positional_information.position[1])
-
+        
+        
+    # scale = 0.25
+    # plt.xlim(-1*scale,scale)
+    # plt.ylim(-1*scale,scale)
     plt.plot(plot_xs, plot_ys)
+    
     plt.show()
 
-        
+def rotary_encoder_test():
+    time_step = 0.01
+    time_stop = 10
+    time_arr = np.arange(0,time_stop,time_step)
 
+    encoder = RotaryEncoder(time_step=time_step, zero_time=0.5)
+    encoder_v = []
+    encoder_p = []
+    real_velocity = 2*signal.square(2 * np.pi * time_arr)
+    
+    for v in real_velocity:
+        enc_v, enc_p = encoder.get_track_velocity(v)
+        encoder_v.append(enc_v)
+        encoder_p.append(enc_p)
+
+    
+    plt.plot(time_arr, real_velocity, 'k--')
+    plt.plot(time_arr, encoder_v)
+    plt.plot(time_arr, encoder_p)
+    
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -239,7 +268,8 @@ if __name__ == '__main__':
     # derivative_error_test()
     # imu_test()
 
-    rover_movement_test()
+    # rover_movement_test()
+    rotary_encoder_test()
 
 
     pass
