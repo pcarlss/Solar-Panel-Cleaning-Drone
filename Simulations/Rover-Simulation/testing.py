@@ -268,16 +268,19 @@ def rover_sensor_movement_test():
     panel = SolarPanelArea(10,10,1000)
     
     time_step = 0.001
-    time_stop = 3
+    time_stop = 10
     time_arange = np.arange(0, time_stop, time_step)
 
     rover = Rover(panel, time_step)
-    rover.set_trajectory(0.05, 1)
+    rover.set_trajectory(0.05, 0.7)
 
     l_speed_actual = []
     l_speed_enc = []
     r_speed_actual = []
     r_speed_enc = []
+    
+    l_desired = np.full_like(time_arange, rover.l_desired_speed)
+    r_desired = np.full_like(time_arange, rover.r_desired_speed)
     
     x_position = []
     y_position = []
@@ -289,7 +292,7 @@ def rover_sensor_movement_test():
     for t in time_arange:
         rover.update_sensors()
 
-        rover.update_motors(use_sensors=False)
+        rover.update_motors(use_sensors=True)
         rover.update_position()
         
         
@@ -300,16 +303,22 @@ def rover_sensor_movement_test():
         r_speed_actual.append(rover.positional_information.r_speed)
 
         l_speed_enc.append(rover.estimated_pos.l_speed)
-        r_speed_enc.append(rover.estimated_pos.r_speed)        
+        r_speed_enc.append(rover.estimated_pos.r_speed)
+        
+        
 
     
     fig, (l_plot, r_plot) = plt.subplots(1,2)  
     
     l_plot.plot(time_arange, l_speed_actual, 'k--')
     r_plot.plot(time_arange, r_speed_actual, 'k--')
+    
     l_plot.plot(time_arange, l_speed_enc)
     r_plot.plot(time_arange, r_speed_enc)
     
+    l_plot.plot(time_arange, l_desired, 'r')
+    r_plot.plot(time_arange, r_desired, 'r')
+
     print(np.shape(l_speed_enc))
     # scale = 0.25
     # plt.xlim(-1*scale,scale)

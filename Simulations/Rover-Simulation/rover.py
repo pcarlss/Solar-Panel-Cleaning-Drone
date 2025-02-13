@@ -54,8 +54,8 @@ class Rover:
         self.track_motor_r = DCMotorDiscrete(K=1.14, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
-        self.track_pid_l = PIDController(Kp=3, Ki=10, Kd=0.05, dt=time_step)
-        self.track_pid_r = PIDController(Kp=3, Ki=10, Kd=0.05, dt=time_step)        
+        self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
+        self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)        
 
         # Decision States
         self.decision_state = DecisionStates.IDLE
