@@ -237,26 +237,85 @@ def rover_movement_test():
 
 def rotary_encoder_test():
     time_step = 0.01
-    time_stop = 10
+    time_stop = 5
     time_arr = np.arange(0,time_stop,time_step)
 
-    encoder = RotaryEncoder(time_step=time_step, zero_time=0.5)
+    encoder = RotaryEncoder(time_step=time_step, zero_time=1)
     encoder_v = []
+    encoder_vavg = []
     encoder_p = []
-    real_velocity = 2*signal.square(2 * np.pi * time_arr)
+    real_velocity = 1*signal.square(2 * np.pi * time_arr * 1/4)
+    
+    averaging_period = 3
     
     for v in real_velocity:
         enc_v, enc_p = encoder.get_track_velocity(v)
         encoder_v.append(enc_v)
         encoder_p.append(enc_p)
+        if len(encoder_vavg) < averaging_period:
+            encoder_vavg.append(enc_v)
+        else:
+            encoder_vavg.append(np.average(encoder_v[-1*averaging_period:-1]))
 
     
     plt.plot(time_arr, real_velocity, 'k--')
     plt.plot(time_arr, encoder_v)
-    plt.plot(time_arr, encoder_p)
+    plt.plot(time_arr, encoder_vavg, 'r')
     
     plt.show()
 
+def rover_sensor_movement_test():
+    panel = SolarPanelArea(10,10,1000)
+    
+    time_step = 0.001
+    time_stop = 3
+    time_arange = np.arange(0, time_stop, time_step)
+
+    rover = Rover(panel, time_step)
+    rover.set_trajectory(0.05, 1)
+
+    l_speed_actual = []
+    l_speed_enc = []
+    r_speed_actual = []
+    r_speed_enc = []
+    
+    x_position = []
+    y_position = []
+    
+    # This initial buffer is NECESSARY to prevent immediate-reversal issues. Also better represents real world situation
+    for t in range(100):
+        rover.update_sensors()
+    
+    for t in time_arange:
+        rover.update_sensors()
+
+        rover.update_motors(use_sensors=False)
+        rover.update_position()
+        
+        
+        x_position.append(rover.positional_information.position[0])
+        y_position.append(rover.positional_information.position[1])
+        
+        l_speed_actual.append(rover.positional_information.l_speed)
+        r_speed_actual.append(rover.positional_information.r_speed)
+
+        l_speed_enc.append(rover.estimated_pos.l_speed)
+        r_speed_enc.append(rover.estimated_pos.r_speed)        
+
+    
+    fig, (l_plot, r_plot) = plt.subplots(1,2)  
+    
+    l_plot.plot(time_arange, l_speed_actual, 'k--')
+    r_plot.plot(time_arange, r_speed_actual, 'k--')
+    l_plot.plot(time_arange, l_speed_enc)
+    r_plot.plot(time_arange, r_speed_enc)
+    
+    print(np.shape(l_speed_enc))
+    # scale = 0.25
+    # plt.xlim(-1*scale,scale)
+    # plt.ylim(-1*scale,scale)
+    
+    plt.show()
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -269,7 +328,8 @@ if __name__ == '__main__':
     # imu_test()
 
     # rover_movement_test()
-    rotary_encoder_test()
+    # rotary_encoder_test()
+    rover_sensor_movement_test()
 
 
     pass
