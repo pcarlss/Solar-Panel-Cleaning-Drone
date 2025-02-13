@@ -209,12 +209,11 @@ def rover_movement_test():
     plot_ys = [0]
 
     rover = Rover(panel, 0.01)
-    tracking_point = (1,1)
-    print(rover.track_motor_r)
+
     rover.set_trajectory(0.05,1)
     print(f"Desired speeds: {rover.l_desired_speed, rover.r_desired_speed}")
 
-    for t in range(50000):
+    for t in range(100000):
         rover.update_motors()
         rover.update_position()
         # print(f"Motor State: {rover.update_motors()}")

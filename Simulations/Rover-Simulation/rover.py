@@ -65,7 +65,6 @@ class Rover:
         turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
 
         turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
-        print(turn_radius)
 
         linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
         turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
@@ -75,14 +74,18 @@ class Rover:
 
         # Rotate d_theta degrees
         x, y = self.positional_information.orientation
-        x = x*np.cos(d_theta) - y*np.sin(d_theta)
-        y = x*np.sin(d_theta) + y*np.cos(d_theta)
-        self.positional_information.orientation = np.array([x, y])
+        new_x = x*np.cos(d_theta) - y*np.sin(d_theta)
+        new_y = x*np.sin(d_theta) + y*np.cos(d_theta)
+        self.positional_information.orientation = np.array([new_x, new_y])
+
 
         # Move d_s distance along a circle
         # self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
         # This is equivalent for some reason???
-        self.positional_information.position = self.positional_information.position + self.positional_information.orientation * 2*turn_radius*np.sin(d_theta/2)
+        dist_x = x*np.cos(d_theta/2) - y*np.sin(d_theta/2)
+        dist_y = x*np.sin(d_theta/2) + y*np.cos(d_theta/2)
+        
+        self.positional_information.position = self.positional_information.position + np.array([dist_x, dist_y]) * 2*turn_radius*np.sin(d_theta/2)
 
         # Update the rest of the values
 
