@@ -124,6 +124,9 @@ class DCMotorDiscrete:
         # Initialize voltage
         self.voltage = 0.0
 
+    def __repr__(self):
+        return f"Motor: <dt={self.dt}, J={self.J}, b={self.b}, K={self.K}, R={self.R}, L={self.L}, Vmax={self.Vmax, self.Vmin}>"
+
     def update(self, voltage):
         """
         Update motor state for one time step using the given voltage

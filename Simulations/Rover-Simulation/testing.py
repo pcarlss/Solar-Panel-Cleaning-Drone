@@ -165,9 +165,9 @@ def motor_test():
         if i < 100:
             new_target = 0
         elif i < 300:
-            new_target = 2.5
+            new_target = 6.8
         else:
-            new_target = 5
+            new_target = -6.8
         
         # Get current speed
         current_speed = motor.get_speed()
@@ -205,15 +205,29 @@ def panel_test():
 
 def rover_movement_test():
     panel = SolarPanelArea(10,10,1000)
-
+    plot_xs = [0]
+    plot_ys = [0]
 
     rover = Rover(panel, 0.01)
+    tracking_point = (1,1)
+    print(rover.track_motor_r)
+    rover.set_trajectory(0.05,1)
+    print(f"Desired speeds: {rover.l_desired_speed, rover.r_desired_speed}")
 
-    rover.set_trajectory(1,1)
-    rover.update_motors()
+    for t in range(50000):
+        rover.update_motors()
+        rover.update_position()
+        # print(f"Motor State: {rover.update_motors()}")
+        # print(f"Motor: {rover.update_position()}")
 
-    rover.update_position()
-    print(rover.positional_information)
+        plot_xs.append(rover.positional_information.position[0])
+        plot_ys.append(rover.positional_information.position[1])
+
+    plt.plot(plot_xs, plot_ys)
+    plt.show()
+
+        
+
 
 
 if __name__ == '__main__':

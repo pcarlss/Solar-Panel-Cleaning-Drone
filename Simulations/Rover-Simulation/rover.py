@@ -27,12 +27,12 @@ class Rover:
         self.rotary_encoder_l = RotaryEncoder()
         self.rotary_encoder_r = RotaryEncoder()
         self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
-        self.track_motor_l = DCMotorDiscrete()
-        self.track_motor_r = DCMotorDiscrete()
+        self.track_motor_l = DCMotorDiscrete(K=1.14, dt=time_step)
+        self.track_motor_r = DCMotorDiscrete(K=1.14, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
-        self.track_pid_l = PIDController()
-        self.track_pid_r = PIDController()
+        self.track_pid_l = PIDController(Kp=3, Ki=10, Kd=0.05, dt=time_step)
+        self.track_pid_r = PIDController(Kp=3, Ki=10, Kd=0.05, dt=time_step)        
 
         #decision states
         self.decision_state = DecisionStates.IDLE
@@ -43,7 +43,7 @@ class Rover:
 
         #physical constants
         self.axle_length = 0.170 #170mm
-        self.wheel_radius = 0.005 #5mm
+        self.wheel_radius = 0.025 #25mm
         self.top_speed = 1 # 1 m/s
         self.top_turn_rate = 1 # rad/s
 
@@ -52,17 +52,20 @@ class Rover:
 
         #desired setpoints for various things
         self.l_desired_speed = 0
-        self.r_desired_speed = 0
+        self.r_desired_speed = 0        
 
     def update_position(self):
         l_speed = self.track_motor_l.get_speed()
-        r_speed = self.track_motor_l.get_speed()
+        r_speed = self.track_motor_r.get_speed()
 
         l_accel = self.track_motor_l.get_angular_acceleration()
         r_accel = self.track_motor_r.get_angular_acceleration()
 
         linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
-        turn_rate = (l_speed - r_speed) * self.wheel_radius / 2
+        turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
+
+        turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
+        print(turn_radius)
 
         linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
         turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
@@ -76,9 +79,10 @@ class Rover:
         y = x*np.sin(d_theta) + y*np.cos(d_theta)
         self.positional_information.orientation = np.array([x, y])
 
-        # Move d_s distance
-        self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
-
+        # Move d_s distance along a circle
+        # self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+        # This is equivalent for some reason???
+        self.positional_information.position = self.positional_information.position + self.positional_information.orientation * 2*turn_radius*np.sin(d_theta/2)
 
         # Update the rest of the values
 
@@ -86,6 +90,8 @@ class Rover:
         self.positional_information.linear_velocity = linear_velocity
         self.positional_information.turn_rate = turn_rate
         self.positional_information.turn_accel = turn_accel
+
+        return self.positional_information
 
     def set_trajectory(self, desired_speed, desired_turn_rate):
         """
@@ -97,14 +103,19 @@ class Rover:
         """
         # from the equations: 
         # Vavg = r (wl + wr) / 2
-        # w = r (wr - wl) / 2
-        self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
-        self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
+        # w = r (wr - wl) / 
+        self.l_desired_speed = (2*desired_speed - (self.axle_length * desired_turn_rate)) / self.wheel_radius
+        self.r_desired_speed = (2*desired_speed + (self.axle_length * desired_turn_rate)) / self.wheel_radius
+        return self.l_desired_speed, self.r_desired_speed    
 
     def update_motors(self):
-        self.track_pid_l.calculate()
-        
-        pass
+        # For now, using absolute information on speed
+        control_voltage_l = self.track_pid_l.calculate(self.l_desired_speed, self.track_motor_l.get_speed())
+        control_voltage_r = self.track_pid_r.calculate(self.r_desired_speed, self.track_motor_r.get_speed())
+        self.track_motor_l.update(control_voltage_l)
+        self.track_motor_r.update(control_voltage_r)
+        return control_voltage_l, control_voltage_r
+
 
     def update_sensors(self):
         pass
@@ -199,7 +210,6 @@ class Rover:
                 self.clean_inner_loops()
             case DecisionStates.DONE:
                 self.when_done()
-
 
     def move_backward_until_edge(self):
         """CONCRETE ACTION"""
