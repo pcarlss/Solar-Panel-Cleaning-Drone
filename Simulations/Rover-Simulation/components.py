@@ -29,11 +29,61 @@ class LimitSwitch:
         return
 
 class RotaryEncoder:
-    def get_track_velocity(self):
-        return
+    def __init__(self, resolution=20, time_step=0.01, zero_time=0.5, reverse_timeout_window=5):
+        self.min_angle = 2*np.pi/resolution
+        self.zero_time = zero_time
+        self.time_step = time_step        
+        self.discrete_pos = 0
+        self.position = 0
+        self.velocity = 0
+        self.time_between = 0
+        self.prev_step = None
+        self.reverse_timeout_window = reverse_timeout_window
+        self.since_last_change = 0
+        pass
     
-    def get_position(self,positional_information):
-        return
+
+    def get_track_velocity(self, track_vel):
+        self.position += track_vel * self.time_step
+        self.time_between += self.time_step
+        step = (self.position - self.discrete_pos) // self.min_angle
+        
+        # Handling for immediate reversal of position (since we start from 0, this will cause speed to spike to negative limit)
+        # Instead, ignore the first reading since this one may be erroneous. Underestimates velocity if the time step is too low/velocity too high.
+        if self.prev_step == None:
+            self.prev_step = step
+            self.discrete_pos = self.discrete_pos + step*self.min_angle # update previous known position
+            
+        
+        # Zero-crossing, this can reliably be ignored with higher frequency readings as it will give an abberant velocity indication.
+        # Position must still be tracked and updated to new position, as well as step direction
+        elif (self.prev_step != 0) and self.prev_step == -1*step:
+            self.discrete_pos = self.discrete_pos + step*self.min_angle # update previous known position
+            self.velocity = 0
+            self.time_between = 0
+            self.prev_step = step   
+            self.since_last_change = 0
+
+        # If it has stepped one complete step in a direction (+ or -): 
+        elif step:
+            self.discrete_pos = self.discrete_pos + step*self.min_angle # update previous known position
+            self.velocity = step*self.min_angle/self.time_between
+            self.time_between = 0
+            self.prev_step = step
+            self.since_last_change = 0
+        
+        # Zeroes out the rotary encoder velocity
+        elif self.time_between > self.zero_time:
+            self.velocity = 0
+            self.time_between = self.zero_time
+            
+        self.since_last_change += 1
+                    
+        # self.prev_step = step # Try moving this to only when it steps?
+
+        return self.velocity, self.discrete_pos
+    
+
 
 
 class TrackMotor:
@@ -123,6 +173,9 @@ class DCMotorDiscrete:
         
         # Initialize voltage
         self.voltage = 0.0
+
+    def __repr__(self):
+        return f"Motor: <dt={self.dt}, J={self.J}, b={self.b}, K={self.K}, R={self.R}, L={self.L}, Vmax={self.Vmax, self.Vmin}>"
 
     def update(self, voltage):
         """

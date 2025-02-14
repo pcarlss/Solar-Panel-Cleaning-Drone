@@ -1,4 +1,4 @@
-from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete
+from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete, PIDController
 from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates
 from dataclasses import dataclass
 from typing import List
@@ -14,95 +14,158 @@ class PositionalInformation():
     turn_rate: float = 0
     linear_accel: float = 0
     turn_accel: float = 0
+    l_speed: float = 0
+    r_speed: float = 0
 
 class Rover:
     def __init__(self, solar_panel_area, time_step):
+        """Rover Class, contains all internal logic for the rover. Should be made to be portable to Arduino relatively easily
+
+        Args:
+            solar_panel_area (SolarPanelArea): panel area
+            time_step (float): time step in seconds
+        """
 
         # X,Y,Theta and their derivatives
         self.positional_information = PositionalInformation(
             position=np.array([0,0]), 
             orientation=np.array([1,0]))
+        
+        # Estimated values for the above
+        self.estimated_pos = PositionalInformation(
+            position=np.array([0,0]), 
+            orientation=np.array([1,0]))
 
+        # Physical constants
+        self.axle_length = 0.170 #170mm
+        self.wheel_radius = 0.025 #25mm
+        self.top_speed = 1 # 1 m/s
+        self.top_turn_rate = 1 # rad/s
+
+        # Simulation constants
+        self.time_step = time_step
+
+        # Sensor definitions
         self.imu = IMU()
-        self.rotary_encoder_l = RotaryEncoder()
-        self.rotary_encoder_r = RotaryEncoder()
+        self.rotary_encoder_l = RotaryEncoder(time_step = self.time_step)
+        self.rotary_encoder_r = RotaryEncoder(time_step = self.time_step)
         self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
-        self.track_motor_l = DCMotorDiscrete()
-        self.track_motor_r = DCMotorDiscrete()
+        self.track_motor_l = DCMotorDiscrete(K=1.14, dt=time_step)
+        self.track_motor_r = DCMotorDiscrete(K=1.14, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
-        #decision states
+        self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
+        self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)        
+
+        # Decision States
         self.decision_state = DecisionStates.IDLE
         self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILEDGE
         self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
         self.inner_loop_states = InnerLoopStates.FOLLOWPATH
         self.radio_message = RadioMessage.NOMESSAGE
 
-        #physical constants
-        self.axle_length = 0.170 #170mm
-        self.wheel_radius = 0.005 #5mm
-        self.top_speed = 1 # 1 m/s
-        self.top_turn_rate = 1 # rad/s
-
-        #Simulation constants
-        self.time_step = time_step
-
-        #desired setpoints for various things
+        # Desired setpoints for PIDs
         self.l_desired_speed = 0
-        self.r_desired_speed = 0
+        self.r_desired_speed = 0        
 
     def update_position(self):
-        l_speed = self.track_motor_l.get_speed()
-        r_speed = self.track_motor_l.get_speed()
+        """Update the rover's actual oposition. 
+        Update is based off of REAL values for left and right track velocity, as obtained from motor
 
+        Returns:
+            PositionalInformation: position object
+        """
+        # Get track speeds and accelerations (angular, rad)
+        l_speed = self.track_motor_l.get_speed()
+        r_speed = self.track_motor_r.get_speed()
+        self.positional_information.l_speed = l_speed
+        self.positional_information.r_speed = r_speed
         l_accel = self.track_motor_l.get_angular_acceleration()
         r_accel = self.track_motor_r.get_angular_acceleration()
 
+        # Compute the center of mass velocities and turn rates and accelerations
         linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
-        turn_rate = (l_speed - r_speed) * self.wheel_radius / 2
-
+        turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
+        
         linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
         turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
-
-        d_theta = turn_rate * self.time_step # rotation amount, radians
-        d_s = linear_velocity * self.time_step # distance amount, m
-
-        # Rotate d_theta degrees
-        x, y = self.positional_information.orientation
-        x = x*np.cos(d_theta) - y*np.sin(d_theta)
-        y = x*np.sin(d_theta) + y*np.cos(d_theta)
-        self.positional_information.orientation = np.array([x, y])
-
-        # Move d_s distance
-        self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
-
-
-        # Update the rest of the values
-
+        
         self.positional_information.linear_accel = linear_accel
         self.positional_information.linear_velocity = linear_velocity
         self.positional_information.turn_rate = turn_rate
-        self.positional_information.turn_accel = turn_accel
+        self.positional_information.turn_accel = turn_accel            
+
+        # Compute the distance amount
+        d_theta = turn_rate * self.time_step # rotation amount, radians
+        d_s = linear_velocity * self.time_step # distance amount, m
+        
+        # Rotate d_theta degrees
+        x, y = self.positional_information.orientation
+        new_x = x*np.cos(d_theta) - y*np.sin(d_theta)
+        new_y = x*np.sin(d_theta) + y*np.cos(d_theta)
+        self.positional_information.orientation = np.array([new_x, new_y])
+
+        # If the track speeds are equal, just move forwards
+        if r_speed == l_speed:
+            # Prevents a divide by zero error
+            turn_radius = 0
+            d_theta = 0
+            self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+
+        # If the track speeds are not equal, move along the perimiter of a circle
+        else:
+            # Find the turn radius
+            turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
+
+            # displacement vector 
+            displacement_vector = np.array([x*np.cos(d_theta/2) - y*np.sin(d_theta/2), x*np.sin(d_theta/2) + y*np.cos(d_theta/2)])  * 2*turn_radius*np.sin(d_theta/2)
+            self.positional_information.position = self.positional_information.position + displacement_vector
+
+        return self.positional_information
 
     def set_trajectory(self, desired_speed, desired_turn_rate):
         """
-        Sets the velocity of the left and right motors
+        Sets the desired velocity of the left and right motors to match the set trajectory
 
         Args:
-            desired_speed (_type_): _description_
-            desired_turn_rate (_type_): _description_
+            desired_speed (float): desired forward velocity in m/s (limit to ~0.1)
+            desired_turn_rate (float): desired turn rate in rad/s
         """
         # from the equations: 
         # Vavg = r (wl + wr) / 2
-        # w = r (wr - wl) / 2
-        self.l_desired_speed = (desired_speed - (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius
-        self.r_desired_speed = (desired_speed + (self.axle_length * desired_turn_rate) / 2) / self.wheel_radius        
+        # w = r (wr - wl) / 
+        self.l_desired_speed = (2*desired_speed - (self.axle_length * desired_turn_rate)) / self.wheel_radius
+        self.r_desired_speed = (2*desired_speed + (self.axle_length * desired_turn_rate)) / self.wheel_radius
+        return self.l_desired_speed, self.r_desired_speed    
 
-    def update_motors(self):
-        
-        pass
+    def update_motors(self, use_sensors=True):
+        """Update motors, following PID logic from the setpoints calculated from set_trajectory()
+
+        Args:
+            use_sensors (bool, optional): Whether to use sensor information (estimated position) as positional reference for the PID measurement calcuation. Defaults to True.
+                \\ Turn this FALSE to validate rover components separate of measurement error
+
+        Returns:
+            tuple: left and right control voltages (not including cap due to motor voltage limits)
+        """
+        if use_sensors:
+            pos_ref = self.estimated_pos
+        else:
+            pos_ref = self.positional_information
+        # For now, using absolute information on speed
+        control_voltage_l = self.track_pid_l.calculate(self.l_desired_speed, pos_ref.l_speed)
+        control_voltage_r = self.track_pid_r.calculate(self.r_desired_speed, pos_ref.r_speed)
+        self.track_motor_l.update(control_voltage_l)
+        self.track_motor_r.update(control_voltage_r)
+        return control_voltage_l, control_voltage_r
 
     def update_sensors(self):
+        # NOTE: encoder velocity derivation step is included in the RotaryEncoder method, instead of the Rover. This should be moved but it works for now
+        l_enc_speed = self.rotary_encoder_l.get_track_velocity(self.positional_information.l_speed)[0]
+        r_enc_speed = self.rotary_encoder_r.get_track_velocity(self.positional_information.r_speed)[0]
+        
+        self.estimated_pos.l_speed = l_enc_speed
+        self.estimated_pos.r_speed = r_enc_speed
         pass
     
     def get_actual_data(self):
@@ -111,13 +174,17 @@ class Rover:
         return self.positional_information
 
     def get_sensor_data(self):
-        """CONCRETE ACTION"""
-        """Fetch sensor readings for decision-making."""
-        imu_data = self.imu.get_imu_data()
-        encoder_l_pos = self.rotary_encoder_l.get_track_velocity()
-        encoder_r_pos = self.rotary_encoder_r.get_track_velocity()
-        limit_switches = [switch.is_pressed() for switch in self.limit_switch_array]
-        return imu_data, encoder_l_pos, encoder_r_pos, limit_switches
+        """
+        NOTE: CHANGE THE LOGIC HERE. Many of the sensors are time-dependent (i.e., making a reading of the position assumes a time-step has happened and will affect derivatives and integrals of values)
+        Changed this to a get method for estimated position based on currently updated sensor positions.
+        CONCRETE ACTION
+        Fetch sensor readings for decision-making."""
+        # imu_data = self.imu.get_imu_data()
+        # encoder_l_pos = self.rotary_encoder_l.get_track_velocity()
+        # encoder_r_pos = self.rotary_encoder_r.get_track_velocity()
+        # limit_switches = [switch.is_pressed() for switch in self.limit_switch_array]
+        # return imu_data, encoder_l_pos, encoder_r_pos, limit_switches
+        return self.estimated_pos
 
     def set_radio_message(self, radio_message):
         """CONCRETE ACTION"""
@@ -195,7 +262,6 @@ class Rover:
                 self.clean_inner_loops()
             case DecisionStates.DONE:
                 self.when_done()
-
 
     def move_backward_until_edge(self):
         """CONCRETE ACTION"""
