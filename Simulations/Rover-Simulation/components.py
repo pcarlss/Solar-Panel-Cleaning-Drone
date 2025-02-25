@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
+from area import SolarPanelArea
 
 class IMU:
     def __init__(self):
@@ -16,17 +17,32 @@ class IMU:
         return
 
 class LimitSwitch:
-   def __init__(self, solar_panel_area):
+   def __init__(self, solar_panel_area: SolarPanelArea, relative_pos):
        self.solar_panel_area = solar_panel_area
+       self.relative_pos = relative_pos
 
-
-   def is_pressed(self, rover_position):
+   def is_pressed(self, rover_position, rover_azimuth):
         #compute switch location
         #check solarpanel area if switch detects edge
-        return 
+        x, y = self.get_position(rover_position, rover_azimuth)
+        ret_val = True
+        if x > self.solar_panel_area.width or x < 0:
+            ret_val = False
+            
+        if y > self.solar_panel_area.height or y < 0:
+            ret_val = False
+        
+        
+        return ret_val
    
-   def get_position(self,positional_information):
-        return
+   def get_position(self, rover_position, rover_azimuth):
+        x0, y0 = rover_position
+        dx_rel, dy_rel = self.relative_pos
+        
+        dx = dx_rel*np.cos(rover_azimuth) - dy_rel*np.sin(rover_azimuth)
+        dy = dx_rel*np.sin(rover_azimuth) + dy_rel*np.cos(rover_azimuth)
+
+        return np.array([x0+dx, y0+dy])
 
 class RotaryEncoder:
     def __init__(self, resolution=20, time_step=0.01, zero_time=0.5, reverse_timeout_window=5):

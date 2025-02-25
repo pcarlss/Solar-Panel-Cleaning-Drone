@@ -1,7 +1,7 @@
 from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete, PIDController
 from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates
 from dataclasses import dataclass
-from typing import List
+from typing import List, Literal
 from scipy.ndimage import rotate
 import numpy as np
 
@@ -18,23 +18,25 @@ class PositionalInformation():
     r_speed: float = 0
 
 class Rover:
-    def __init__(self, solar_panel_area, time_step):
+    def __init__(self, solar_panel_area, time_step, position = np.array([0,0]), orientation = np.array([1,0])):
         """Rover Class, contains all internal logic for the rover. Should be made to be portable to Arduino relatively easily
 
         Args:
             solar_panel_area (SolarPanelArea): panel area
             time_step (float): time step in seconds
+            position (1D array): [x,y] initial position of the rover
+            orientation (1D array): [x,y] unit vector orientation of the rover 
         """
 
         # X,Y,Theta and their derivatives
         self.positional_information = PositionalInformation(
-            position=np.array([0,0]), 
-            orientation=np.array([1,0]))
+            position=position, 
+            orientation=orientation)
         
         # Estimated values for the above
         self.estimated_pos = PositionalInformation(
             position=np.array([0,0]), 
-            orientation=np.array([1,0]))
+            orientation=np.array([0,1]))
 
         # Physical constants
         self.axle_length = 0.170 #170mm
@@ -49,7 +51,17 @@ class Rover:
         self.imu = IMU()
         self.rotary_encoder_l = RotaryEncoder(time_step = self.time_step)
         self.rotary_encoder_r = RotaryEncoder(time_step = self.time_step)
-        self.limit_switch_array = [LimitSwitch(solar_panel_area) for _ in range(8)]
+        
+        # Limit switches identified by last three chars: l/r for left/right, f/b for front/back, i/o for inboard/outboard
+        self.limit_switch_lfo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.105]))
+        self.limit_switch_lfi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.1]))
+        self.limit_switch_rfo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.105]))
+        self.limit_switch_rfi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.1]))
+        self.limit_switch_lbo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.105]))
+        self.limit_switch_lbi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.1]))
+        self.limit_switch_rbo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.105]))
+        self.limit_switch_rbi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.1]))
+        
         self.track_motor_l = DCMotorDiscrete(K=1.14, dt=time_step)
         self.track_motor_r = DCMotorDiscrete(K=1.14, dt=time_step)
         self.cleaning_motors = CleaningMotor()
@@ -66,7 +78,93 @@ class Rover:
 
         # Desired setpoints for PIDs
         self.l_desired_speed = 0
-        self.r_desired_speed = 0        
+        self.r_desired_speed = 0   
+        
+    def get_limit_switch_readout(self, display=False, type: Literal["state", "pos"] = "state"):
+        """Get full limit switch readout in array form.
+        
+        Ordering is, in order of priority: Upper, Left, Outer (i.e., LFO, LFI, RFO, ...) indexed 0-7
+
+        Args:
+            display (bool, optional): Whether to print out the whole return dataset. Defaults to False.
+            type (Literal["state", "pos"], optional): Return state (True/False) or position (np.array([x,y])) for each switch. Defaults to "state".
+
+        Returns:
+            list: list of return values
+        """
+        # Keep default ordering, copied from Rover initialization
+        if type=='pos':
+            lfo_pos = self.limit_switch_lfo.get_position(self.positional_information.position, self.get_azimuth())
+            lfi_pos = self.limit_switch_lfi.get_position(self.positional_information.position, self.get_azimuth())
+            rfo_pos = self.limit_switch_rfo.get_position(self.positional_information.position, self.get_azimuth())
+            rfi_pos = self.limit_switch_rfi.get_position(self.positional_information.position, self.get_azimuth())
+            lbo_pos = self.limit_switch_lbo.get_position(self.positional_information.position, self.get_azimuth())
+            lbi_pos = self.limit_switch_lbi.get_position(self.positional_information.position, self.get_azimuth())
+            rbo_pos = self.limit_switch_rbo.get_position(self.positional_information.position, self.get_azimuth())
+            rbi_pos = self.limit_switch_rbi.get_position(self.positional_information.position, self.get_azimuth())
+            
+            ret_list = [
+                lfo_pos,
+                lfi_pos,
+                rfo_pos,
+                rfi_pos,
+                lbo_pos,
+                lbi_pos,
+                rbo_pos,
+                rbi_pos
+            ]
+            
+            if display:
+                print("lfo_pos: ", lfo_pos)
+                print("lfi_pos: ", lfi_pos)
+                print("rfo_pos: ", rfo_pos)
+                print("rfi_pos: ", rfi_pos)
+                print("lbo_pos: ", lbo_pos)
+                print("lbi_pos: ", lbi_pos)
+                print("rbo_pos: ", rbo_pos)
+                print("rbi_pos: ", rbi_pos)
+            return ret_list
+                
+        if type=='state':
+            lfo_state = self.limit_switch_lfo.is_pressed(self.positional_information.position, self.get_azimuth())
+            lfi_state = self.limit_switch_lfi.is_pressed(self.positional_information.position, self.get_azimuth())
+            rfo_state = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.get_azimuth())
+            rfi_state = self.limit_switch_rfi.is_pressed(self.positional_information.position, self.get_azimuth())
+            lbo_state = self.limit_switch_lbo.is_pressed(self.positional_information.position, self.get_azimuth())
+            lbi_state = self.limit_switch_lbi.is_pressed(self.positional_information.position, self.get_azimuth())
+            rbo_state = self.limit_switch_rbo.is_pressed(self.positional_information.position, self.get_azimuth())
+            rbi_state = self.limit_switch_rbi.is_pressed(self.positional_information.position, self.get_azimuth())
+            
+            ret_list = [
+                lfo_state,
+                lfi_state,
+                rfo_state,
+                rfi_state,
+                lbo_state,
+                lbi_state,
+                rbo_state,
+                rbi_state
+            ]
+            
+            if display:
+                print("lfo_state: ", lfo_state)
+                print("lfi_state: ", lfi_state)
+                print("rfo_state: ", rfo_state)
+                print("rfi_state: ", rfi_state)
+                print("lbo_state: ", lbo_state)
+                print("lbi_state: ", lbi_state)
+                print("rbo_state: ", rbo_state)
+                print("rbi_state: ", rbi_state)
+            return ret_list            
+
+        
+    def get_azimuth(self):
+        """Get rover azimuth angle from its orientation vector
+
+        Returns:
+            float: angle (rad)
+        """
+        return np.atan2(self.positional_information.orientation[1], self.positional_information.orientation[0])  
 
     def update_position(self):
         """Update the rover's actual oposition. 

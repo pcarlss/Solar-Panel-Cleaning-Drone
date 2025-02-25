@@ -1,5 +1,6 @@
 import random
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import numpy as np
 from scipy import signal
 from matplotlib.animation import FuncAnimation
@@ -406,6 +407,158 @@ def rover_sensor_movement_test():
     
     plt.show()
 
+def panel_bounds_test():
+    area = SolarPanelArea(10,10,100)
+    print(f"TRUE: {area.is_on_panel(np.array([0,0]))}")
+    print(f"FALSE: {area.is_on_panel(np.array([-0.1,11]))}")
+    
+def limit_switch_test():
+    # Simulation init
+    area = SolarPanelArea(1,1,100)
+    rover = Rover(area, 0.01, position=np.array([0.5,0.5]), orientation=np.array([0,1]))
+    N = 1000
+    
+    # Default timeline arrays.
+    # Indexing is [switch_number][time] or [switch_number][time][coordinate (x or y)]
+    pos_timeline = np.zeros([8,1,2])
+    status_timeline = np.full([8,1], True)
+    
+    # get the full limit switch readout from Rover
+    pos_array = rover.get_limit_switch_readout(type='pos')
+    status_array = rover.get_limit_switch_readout()
+
+    # Initialize/setup plotting
+    fig, ax = plt.subplots(1,1)
+    fig.set_size_inches(16,9)
+    ax.set_aspect('equal')
+    ax.set(xlim=[-0.25,1.25],ylim=[-0.25,1.25])
+    
+    for i, pos in enumerate(pos_array):
+        pos_timeline[i,0] = pos
+        status_timeline[i,0] = status_array[i]
+
+    plots = list(ax.plot(*switch_pos[-1], 'bo') for switch_pos in pos_timeline)
+    
+    ax.add_patch(patches.Rectangle((0,0), area.width, area.height, linewidth=1, edgecolor='r', facecolor='none'))
+    
+    rover.set_trajectory(0.1,0)
+    for t in range(N):
+        rover.update_sensors()
+        rover.update_motors(use_sensors=True)
+        rover.update_position()
+        pos_array = np.array(rover.get_limit_switch_readout(type='pos')).reshape((8,1,2))
+        status_array = np.array(rover.get_limit_switch_readout()).reshape(8,1)
+        if not all(status_array.flatten()):
+            rover.set_trajectory(-0.1,0)
+
+
+
+        
+        pos_timeline = np.append(pos_timeline, pos_array, axis=1)
+        status_timeline = np.append(status_timeline, status_array, axis=1)
+    
+    def animate(i):
+        for switch, status, plot in zip(pos_timeline, status_timeline, plots):
+            x,y = switch[i]
+            state = status[i]
+            plot[0].set_data([x],[y])
+            if state:
+                plot[0].set_color('b')
+            else:
+                plot[0].set_color('r')
+                
+        return plots
+            
+    ani = FuncAnimation(
+        fig,
+        animate,
+        interval=10,
+        blit=False,
+        frames=range(1,N),
+        repeat_delay=100
+    )
+    plt.show()
+
+
+    # fig, ax = plt.subplots(1,1)
+    # path, = ax.plot(plot_xs, plot_ys, 'k--', label='Rover path')
+    # r_point, = ax.plot(0,0,"ro", label='Rover CG')
+    
+    # arr_scale = 0.0075
+    # or_arrow = ax.arrow(0,0,0,0 , head_width=0.0025, head_length=0.001, color='r', ec=None, label='Rover orientation')
+    # ax.set_aspect('equal')
+    # ax.set_title("Rover circular path demonstration")
+    # ax.legend(loc='center', ncol=1, fancybox=True, shadow=True)
+
+    # def animate(i):
+    #     x, y = plot_xs[:i], plot_ys[:i]
+    #     or_x, or_y = or_xs[i], or_ys[i]
+    #     path.set_data(x, y)
+    #     r_point.set_data([x[-1]],[y[-1]])
+    #     or_arrow.set_data(x=x[-1],y=y[-1], dx=arr_scale*or_x, dy=arr_scale*or_y)
+    #     return path, r_point
+    
+    # ani = FuncAnimation(
+    #     fig,
+    #     animate,
+    #     interval=10,
+    #     blit=False,
+    #     frames=range(1,len(plot_xs)),
+    #     repeat_delay=100
+    # )
+    
+    # writer = animation.PillowWriter(fps=60,
+    #                                 bitrate=1800)
+    # ani.save('movement.gif', writer=writer)
+    
+    
+    # lfo_pos = rover.limit_switch_lfo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lfi_pos = rover.limit_switch_lfi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rfo_pos = rover.limit_switch_rfo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rfi_pos = rover.limit_switch_rfi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lbo_pos = rover.limit_switch_lbo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lbi_pos = rover.limit_switch_lbi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rbo_pos = rover.limit_switch_rbo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rbi_pos = rover.limit_switch_rbi.get_position(rover.positional_information.position, rover.get_azimuth())
+    
+    # plt.plot(*lfo_pos, 'bo')
+    # plt.plot(*lfi_pos, 'bo')
+    # plt.plot(*rfo_pos, 'bo')
+    # plt.plot(*rfi_pos, 'bo')
+    # plt.plot(*lbo_pos, 'bo')
+    # plt.plot(*lbi_pos, 'bo')
+    # plt.plot(*rbo_pos, 'bo')
+    # plt.plot(*rbi_pos, 'bo')
+    # plt.plot(*rover.positional_information.position, 'b+')
+    
+    
+    # rover.set_trajectory(0,0.7)
+    # for t in range(145):
+    #     rover.update_sensors()
+
+    #     rover.update_motors(use_sensors=False)
+    #     rover.update_position()
+    
+    # lfo_pos = rover.limit_switch_lfo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lfi_pos = rover.limit_switch_lfi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rfo_pos = rover.limit_switch_rfo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rfi_pos = rover.limit_switch_rfi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lbo_pos = rover.limit_switch_lbo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # lbi_pos = rover.limit_switch_lbi.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rbo_pos = rover.limit_switch_rbo.get_position(rover.positional_information.position, rover.get_azimuth())
+    # rbi_pos = rover.limit_switch_rbi.get_position(rover.positional_information.position, rover.get_azimuth())
+    
+    # plt.plot(*lfo_pos, 'ro')
+    # plt.plot(*lfi_pos, 'ro')
+    # plt.plot(*rfo_pos, 'ro')
+    # plt.plot(*rfi_pos, 'ro')
+    # plt.plot(*lbo_pos, 'ro')
+    # plt.plot(*lbi_pos, 'ro')
+    # plt.plot(*rbo_pos, 'ro')
+    # plt.plot(*rbi_pos, 'ro')
+    # plt.plot(*rover.positional_information.position, 'r+')
+        
+
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -415,10 +568,14 @@ if __name__ == '__main__':
     # panel_test()
 
     # derivative_error_test()
-    imu_test()
+    # imu_test()
 
-    # rover_movement_test()
-    # rotary_encoder_test()
-    rover_sensor_movement_test()
+    # # rover_movement_test()
+    # # rotary_encoder_test()
+    # rover_sensor_movement_test()
+    # panel_bounds_test()
+    limit_switch_test()
+    
+    
 
     pass

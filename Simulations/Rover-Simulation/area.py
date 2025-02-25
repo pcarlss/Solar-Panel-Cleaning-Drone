@@ -23,8 +23,8 @@ class SolarPanelArea:
             for j in range(div):
                 self.position_array[i][j] = Point(coord=(x[i], y[j]))
         
-        # Initialize visualization
-        self.init_plot()
+        # # Initialize visualization
+        # self.init_plot()
 
     def init_plot(self):
         """Initialize live visualization of the panel area and rover."""
@@ -59,3 +59,13 @@ class SolarPanelArea:
         # Refresh the plot
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+
+    def is_on_panel(self, point):
+        x, y = point
+        on_panel = True
+        if not (x >= 0 and x <= self.width):
+            on_panel = False
+        if not (y >= 0 and y <= self.height):
+            on_panel = False
+        return on_panel
+            
