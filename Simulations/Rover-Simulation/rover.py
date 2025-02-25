@@ -71,7 +71,7 @@ class Rover:
         self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
         self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
         
-        self.orientation_pid = PIDController(Kp=0.5, Ki=0.2, Kd=0.05, dt=time_step)
+        self.orientation_pid = PIDController(Kp=0.75, Ki=0, Kd=0.3, dt=time_step)
         self.turn_compensation_factor = 1.08 # determined through trial and error 
 
         # Decision States

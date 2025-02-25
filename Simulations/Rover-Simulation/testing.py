@@ -569,7 +569,7 @@ def rotational_pid_test():
     fig.set_size_inches(16,9)
     ax1.set_ylim(0,1.5)
     ax1.set_xlim(0,xs[-1])
-    runs = 500
+    runs = 100
     
     
     offset = []
@@ -604,7 +604,7 @@ def rotational_pid_test():
         ax1.plot(xs, [az/turn_magnitude for az in az_list], 'b', linewidth=20/runs)
         ax1.plot(xs, [est/turn_magnitude for est in estimated_az], 'r', linewidth=20/runs)
         
-        offset.append((estimated_az[-1] - desired_az[-1])/turn_magnitude)
+        offset.append(((az_list[-1] - desired_az[-1] + np.pi)%(2*np.pi) - np.pi)/turn_magnitude)
         
     # print(np.average(offset))
     ax1.plot(xs, [des/turn_magnitude for des in desired_az], 'k--')
