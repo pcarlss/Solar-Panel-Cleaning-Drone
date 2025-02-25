@@ -8,6 +8,8 @@ import matplotlib.animation as animation
 from components import DCMotorDiscrete, SimpleMotor, PIDController, RotaryEncoder
 from area import SolarPanelArea
 from rover import Rover
+from scipy.interpolate import UnivariateSpline
+
 
 from error import GaussianProportionalError, GaussianDerivativeError, GaussianNoise, GaussMarkovBias
 
@@ -110,7 +112,6 @@ def imu_test():
 
 
     pass
-
 
 
 def gauss_error_test():
@@ -558,7 +559,73 @@ def limit_switch_test():
     # plt.plot(*rbi_pos, 'ro')
     # plt.plot(*rover.positional_information.position, 'r+')
         
+def rotational_pid_test():
 
+    N = 750
+        
+    xs = np.linspace(0,N*0.01,N)
+    
+    fig, (ax1, ax2) = plt.subplots(1,2)
+    fig.set_size_inches(16,9)
+    ax1.set_ylim(0,1.5)
+    ax1.set_xlim(0,xs[-1])
+    runs = 500
+    
+    
+    offset = []
+    
+    for r in range(runs):
+        panel = SolarPanelArea(1,1,100)
+        rover = Rover(panel, 0.01, np.array([0.5,0.5]), np.array([1,0]))        
+        az_list = []
+        desired_az = []
+        estimated_az = []
+        rate_list = []
+        desired_rate_list = []
+        # turn_magnitude = np.random.choice([-1,1])*((np.random.rand())*np.pi/4 + np.pi/2) # turns near +-pi/2
+        turn_magnitude = np.random.choice([-1,1])*(np.pi/2) # Turns at exactly +-pi/2
+        
+
+        rover.set_desired_azimuth(turn_magnitude)
+        for t in range(N):
+            _, desired = rover.update_turning_trajectory(use_sensors=True)
+            rover.update_sensors()        
+            rover.update_motors(use_sensors=True)
+            rover.update_position()
+            _, actual = rover.compute_trajectory(use_sensors=False)
+            
+            estimated_az.append(rover.estimated_pos.azimuth)
+            rate_list.append(actual)
+            desired_rate_list.append(desired)
+            az_list.append(rover.get_azimuth())
+            
+            desired_az.append(rover.desired_azimuth)
+
+        ax1.plot(xs, [az/turn_magnitude for az in az_list], 'b', linewidth=20/runs)
+        ax1.plot(xs, [est/turn_magnitude for est in estimated_az], 'r', linewidth=20/runs)
+        
+        offset.append((estimated_az[-1] - desired_az[-1])/turn_magnitude)
+        
+    # print(np.average(offset))
+    ax1.plot(xs, [des/turn_magnitude for des in desired_az], 'k--')
+    
+    n = runs//10
+    p,x = np.histogram(offset, bins=n)
+    x = x[:-1] + (x[1] - x[0])/2    
+    f1 = UnivariateSpline(x, p, s=n)
+    f2 = UnivariateSpline(x, p, s=runs)
+    ax2.plot(x, f1(x), 'b', linewidth=0.5)
+    ax2.plot(x, f2(x), 'k--')
+    
+
+    
+
+    plt.show()
+        
+    
+    
+    
+    
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -574,7 +641,8 @@ if __name__ == '__main__':
     # # rotary_encoder_test()
     # rover_sensor_movement_test()
     # panel_bounds_test()
-    limit_switch_test()
+    # limit_switch_test()
+    rotational_pid_test()
     
     
 

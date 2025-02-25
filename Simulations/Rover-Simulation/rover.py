@@ -8,14 +8,16 @@ import numpy as np
 
 @dataclass()
 class PositionalInformation():
-    position: np.ndarray[2, float]
-    orientation: np.ndarray[2, float]
-    linear_velocity: float = 0
-    turn_rate: float = 0
-    linear_accel: float = 0
-    turn_accel: float = 0
-    l_speed: float = 0
-    r_speed: float = 0
+    position: np.ndarray[2, float] # XY position, (m,m)
+    orientation: np.ndarray[2, float] # Unit vector orientation
+    distance_track: float = 0 # Variable to track current forward distance travelled in a single "go straight" operation, m
+    azimuth: float = 0 # Actual azimuth angle, same as unit vector orientation, rad
+    linear_velocity: float = 0 # Linear forward velocity, m/s
+    turn_rate: float = 0 # Turn rate, rad/s
+    linear_accel: float = 0 # Linear forward acceleration, m/s^2
+    turn_accel: float = 0 # Turning acceleration, rad/s^2
+    l_speed: float = 0 # Left track speed, rad/s
+    r_speed: float = 0 # Right track speed, rad/s
 
 class Rover:
     def __init__(self, solar_panel_area, time_step, position = np.array([0,0]), orientation = np.array([1,0])):
@@ -49,8 +51,8 @@ class Rover:
 
         # Sensor definitions
         self.imu = IMU()
-        self.rotary_encoder_l = RotaryEncoder(time_step = self.time_step)
-        self.rotary_encoder_r = RotaryEncoder(time_step = self.time_step)
+        self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.25)
+        self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.25)
         
         # Limit switches identified by last three chars: l/r for left/right, f/b for front/back, i/o for inboard/outboard
         self.limit_switch_lfo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.105]))
@@ -67,7 +69,10 @@ class Rover:
         self.cleaning_motors = CleaningMotor()
 
         self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
-        self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)        
+        self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
+        
+        self.orientation_pid = PIDController(Kp=0.5, Ki=0.2, Kd=0.05, dt=time_step)
+        self.turn_compensation_factor = 1.08 # determined through trial and error 
 
         # Decision States
         self.decision_state = DecisionStates.IDLE
@@ -79,6 +84,39 @@ class Rover:
         # Desired setpoints for PIDs
         self.l_desired_speed = 0
         self.r_desired_speed = 0   
+        
+        self.positional_information.azimuth = self.get_azimuth()
+        
+        self.desired_azimuth = self.positional_information.azimuth # Used to track to correct azimuthal angle in a rotation operation
+        self.desired_distance = 0 # Used to go the correct distance forwards in a straight-line operation
+        
+    def set_desired_azimuth(self, desired_azimuth):
+        """Tell the robot to move to a certain orientation"""
+        self.desired_azimuth = desired_azimuth
+        pass
+    
+    def update_turning_trajectory(self, use_sensors=True):
+        if use_sensors:
+            ref = self.estimated_pos
+        else:
+            ref = self.positional_information
+        
+        desired_speed = 0
+        desired_turn_rate = self.orientation_pid.calculate(self.desired_azimuth, ref.azimuth, angular=True)
+        
+        # If the desired turn rate is low (low error), the left and right speeds are zero (ZUPT condition), and we are using sensors (real data tracking will never ZUPT)
+        # if abs(desired_turn_rate) < 0.05 and ref.l_speed == 0 and ref.r_speed == 0 and use_sensors:
+        #     ref.azimuth = self.desired_azimuth
+        #     desired_speed, desired_turn_rate = (0,0)
+            
+            
+        self.set_trajectory(desired_speed=desired_speed, desired_turn_rate=desired_turn_rate)
+        
+        return desired_speed, desired_turn_rate
+
+    def set_desired_distance(self, desired_distance):
+        self.desired_distance = desired_distance
+        pass
         
     def get_limit_switch_readout(self, display=False, type: Literal["state", "pos"] = "state"):
         """Get full limit switch readout in array form.
@@ -94,14 +132,14 @@ class Rover:
         """
         # Keep default ordering, copied from Rover initialization
         if type=='pos':
-            lfo_pos = self.limit_switch_lfo.get_position(self.positional_information.position, self.get_azimuth())
-            lfi_pos = self.limit_switch_lfi.get_position(self.positional_information.position, self.get_azimuth())
-            rfo_pos = self.limit_switch_rfo.get_position(self.positional_information.position, self.get_azimuth())
-            rfi_pos = self.limit_switch_rfi.get_position(self.positional_information.position, self.get_azimuth())
-            lbo_pos = self.limit_switch_lbo.get_position(self.positional_information.position, self.get_azimuth())
-            lbi_pos = self.limit_switch_lbi.get_position(self.positional_information.position, self.get_azimuth())
-            rbo_pos = self.limit_switch_rbo.get_position(self.positional_information.position, self.get_azimuth())
-            rbi_pos = self.limit_switch_rbi.get_position(self.positional_information.position, self.get_azimuth())
+            lfo_pos = self.limit_switch_lfo.get_position(self.positional_information.position, self.positional_information.azimuth)
+            lfi_pos = self.limit_switch_lfi.get_position(self.positional_information.position, self.positional_information.azimuth)
+            rfo_pos = self.limit_switch_rfo.get_position(self.positional_information.position, self.positional_information.azimuth)
+            rfi_pos = self.limit_switch_rfi.get_position(self.positional_information.position, self.positional_information.azimuth)
+            lbo_pos = self.limit_switch_lbo.get_position(self.positional_information.position, self.positional_information.azimuth)
+            lbi_pos = self.limit_switch_lbi.get_position(self.positional_information.position, self.positional_information.azimuth)
+            rbo_pos = self.limit_switch_rbo.get_position(self.positional_information.position, self.positional_information.azimuth)
+            rbi_pos = self.limit_switch_rbi.get_position(self.positional_information.position, self.positional_information.azimuth)
             
             ret_list = [
                 lfo_pos,
@@ -126,14 +164,14 @@ class Rover:
             return ret_list
                 
         if type=='state':
-            lfo_state = self.limit_switch_lfo.is_pressed(self.positional_information.position, self.get_azimuth())
-            lfi_state = self.limit_switch_lfi.is_pressed(self.positional_information.position, self.get_azimuth())
-            rfo_state = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.get_azimuth())
-            rfi_state = self.limit_switch_rfi.is_pressed(self.positional_information.position, self.get_azimuth())
-            lbo_state = self.limit_switch_lbo.is_pressed(self.positional_information.position, self.get_azimuth())
-            lbi_state = self.limit_switch_lbi.is_pressed(self.positional_information.position, self.get_azimuth())
-            rbo_state = self.limit_switch_rbo.is_pressed(self.positional_information.position, self.get_azimuth())
-            rbi_state = self.limit_switch_rbi.is_pressed(self.positional_information.position, self.get_azimuth())
+            lfo_state = self.limit_switch_lfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            lfi_state = self.limit_switch_lfi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            rfo_state = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            rfi_state = self.limit_switch_rfi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            lbo_state = self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            lbi_state = self.limit_switch_lbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            rbo_state = self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+            rbi_state = self.limit_switch_rbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
             
             ret_list = [
                 lfo_state,
@@ -156,16 +194,34 @@ class Rover:
                 print("rbo_state: ", rbo_state)
                 print("rbi_state: ", rbi_state)
             return ret_list            
-
-        
+       
     def get_azimuth(self):
         """Get rover azimuth angle from its orientation vector
 
         Returns:
             float: angle (rad)
         """
-        return np.atan2(self.positional_information.orientation[1], self.positional_information.orientation[0])  
+        return (np.atan2(self.positional_information.orientation[1], self.positional_information.orientation[0])) % (2*np.pi)
+    
+    def compute_trajectory(self, use_sensors=True):
+        """Compute trajectory (linear velocity, turn rate), either using sensor data or real data
 
+        Args:
+            use_sensors (bool, optional): _description_. Defaults to True.
+
+        Returns:
+            _type_: _description_
+        """
+        if use_sensors:
+            l_speed = self.estimated_pos.l_speed
+            r_speed = self.estimated_pos.r_speed
+        else:
+            l_speed = self.positional_information.l_speed
+            r_speed = self.positional_information.r_speed
+        linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
+        turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
+        return linear_velocity, turn_rate
+        
     def update_position(self):
         """Update the rover's actual oposition. 
         Update is based off of REAL values for left and right track velocity, as obtained from motor
@@ -182,8 +238,7 @@ class Rover:
         r_accel = self.track_motor_r.get_angular_acceleration()
 
         # Compute the center of mass velocities and turn rates and accelerations
-        linear_velocity = (l_speed + r_speed) * self.wheel_radius / 2
-        turn_rate = (r_speed - l_speed) * self.wheel_radius / self.axle_length
+        linear_velocity, turn_rate = self.compute_trajectory(use_sensors=False)
         
         linear_accel = (l_accel + r_accel) * self.wheel_radius / 2
         turn_accel = (l_accel - r_accel) * self.wheel_radius / 2
@@ -191,35 +246,48 @@ class Rover:
         self.positional_information.linear_accel = linear_accel
         self.positional_information.linear_velocity = linear_velocity
         self.positional_information.turn_rate = turn_rate
-        self.positional_information.turn_accel = turn_accel            
+        self.positional_information.turn_accel = turn_accel  
+        
+        # Compute full travel
+        self.positional_information.position, self.positional_information.orientation, self.positional_information.azimuth = self.compute_travel(use_sensors=False)
+        
+        return self.positional_information
 
+    def compute_travel(self, use_sensors=True):
+        if use_sensors:
+            ref = self.estimated_pos
+        else:
+            ref = self.positional_information
+        
         # Compute the distance amount
-        d_theta = turn_rate * self.time_step # rotation amount, radians
-        d_s = linear_velocity * self.time_step # distance amount, m
+        d_theta = ref.turn_rate * self.time_step # rotation amount, radians
+        d_s = ref.linear_velocity * self.time_step # distance amount, m
         
         # Rotate d_theta degrees
-        x, y = self.positional_information.orientation
+        azimuth = (ref.azimuth + d_theta) % (2*np.pi)
+        
+        x, y = ref.orientation
         new_x = x*np.cos(d_theta) - y*np.sin(d_theta)
         new_y = x*np.sin(d_theta) + y*np.cos(d_theta)
-        self.positional_information.orientation = np.array([new_x, new_y])
+        orientation = np.array([new_x, new_y])
 
         # If the track speeds are equal, just move forwards
-        if r_speed == l_speed:
+        if ref.r_speed == ref.l_speed:
             # Prevents a divide by zero error
             turn_radius = 0
             d_theta = 0
-            self.positional_information.position = self.positional_information.position + self.positional_information.orientation * d_s
+            position = ref.position + ref.orientation * d_s
 
         # If the track speeds are not equal, move along the perimiter of a circle
         else:
             # Find the turn radius
-            turn_radius = self.axle_length/2 * (r_speed + l_speed) / (r_speed - l_speed)
+            turn_radius = self.axle_length/2 * (ref.r_speed + ref.l_speed) / (ref.r_speed - ref.l_speed)
 
             # displacement vector 
             displacement_vector = np.array([x*np.cos(d_theta/2) - y*np.sin(d_theta/2), x*np.sin(d_theta/2) + y*np.cos(d_theta/2)])  * 2*turn_radius*np.sin(d_theta/2)
-            self.positional_information.position = self.positional_information.position + displacement_vector
-
-        return self.positional_information
+            position = ref.position + displacement_vector
+                        
+        return position, orientation, azimuth
 
     def set_trajectory(self, desired_speed, desired_turn_rate):
         """
@@ -258,12 +326,18 @@ class Rover:
         return control_voltage_l, control_voltage_r
 
     def update_sensors(self):
+        """Updates sensor readings AND generates new self.estimated_pos readings
+        """
         # NOTE: encoder velocity derivation step is included in the RotaryEncoder method, instead of the Rover. This should be moved but it works for now
         l_enc_speed = self.rotary_encoder_l.get_track_velocity(self.positional_information.l_speed)[0]
         r_enc_speed = self.rotary_encoder_r.get_track_velocity(self.positional_information.r_speed)[0]
         
         self.estimated_pos.l_speed = l_enc_speed
         self.estimated_pos.r_speed = r_enc_speed
+        self.estimated_pos.linear_velocity, self.estimated_pos.turn_rate = self.compute_trajectory()
+        
+        self.estimated_pos.position, self.estimated_pos.orientation, self.estimated_pos.azimuth = self.compute_travel()
+        
         pass
     
     def get_actual_data(self):
@@ -368,7 +442,6 @@ class Rover:
         # if any back limit switch hits, stop immediately
         self.set_trajectory()
         pass
-
 
     def align_with_edge(self):
         """CONCRETE ACTION"""

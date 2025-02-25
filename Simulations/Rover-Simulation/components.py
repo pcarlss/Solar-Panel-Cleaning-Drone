@@ -48,9 +48,9 @@ class RotaryEncoder:
     def __init__(self, resolution=20, time_step=0.01, zero_time=0.5, reverse_timeout_window=5):
         self.min_angle = 2*np.pi/resolution
         self.zero_time = zero_time
-        self.time_step = time_step        
+        self.time_step = time_step   
         self.discrete_pos = 0
-        self.position = 0
+        self.position = (np.random.rand()-0.5)*2*np.pi #random position between -pi and pi
         self.velocity = 0
         self.time_between = 0
         self.prev_step = None
@@ -238,11 +238,13 @@ class PIDController:
         self.previous_error = 0
         self.error = 0
         
-    def calculate(self, setpoint, measurement):
+    def calculate(self, setpoint, measurement, angular=False):
         """
         Calculate next gain output using setpoint (desired) and measurement (data). 
         """
         self.error = setpoint - measurement
+        if angular:
+            self.error = ((setpoint - measurement + np.pi) % (2*np.pi)) - np.pi
         
         # Proportional term
         P = self.Kp * self.error
