@@ -1,4 +1,5 @@
 #include <Wire.h>
+#include <PID_v1.h>
 
 // Define motor pins
 #define MOTOR_L_PWM 5
@@ -30,6 +31,14 @@
 
 volatile long leftEncoderCount = 0;
 volatile long rightEncoderCount = 0;
+
+// PID control variables
+double pidInputL, pidOutputL, pidSetpointL;
+double pidInputR, pidOutputR, pidSetpointR;
+
+// Initialize PID controllers for left and right motors
+PID pidLeft(&pidInputL, &pidOutputL, &pidSetpointL, 2.0, 5.0, 1.0, DIRECT);  // Adjust PID constants based on your needs
+PID pidRight(&pidInputR, &pidOutputR, &pidSetpointR, 2.0, 5.0, 1.0, DIRECT);  // Adjust PID constants based on your needs
 
 // Enums for state management
 enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
@@ -89,9 +98,11 @@ void setup() {
 
     // Set motor pins as output
     pinMode(MOTOR_L_PWM, OUTPUT);
-    pinMode(MOTOR_L_DIR, OUTPUT);
+    pinMode(MOTOR_L_IN1, OUTPUT);
+    pinMode(MOTOR_L_IN2, OUTPUT);
     pinMode(MOTOR_R_PWM, OUTPUT);
-    pinMode(MOTOR_R_DIR, OUTPUT);
+    pinMode(MOTOR_R_IN1, OUTPUT);
+    pinMode(MOTOR_R_IN2, OUTPUT);
 
     // Set limit switch pins as input
     pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
@@ -108,6 +119,10 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
+    // Initialize PID controllers
+    pidLeft.SetMode(AUTOMATIC);
+    pidRight.SetMode(AUTOMATIC);
+
     Serial.println("Rover Initialized.");
 }
 
@@ -120,17 +135,15 @@ void loop() {
 // **Update All Sensor Data**
 void updateData() {
     // Read limit switch states
-     for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        // Calculate the selector pin values based on the current index
+    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
         int selectorIndex = i / 2; // Select 1 bit for each multiplexer channel
         int selectorBit = i % 2;   // Select low or high bit
 
         // Write the selector pin values to the multiplexer
-        digitalWrite(limitSwitchPins[0], (selectorIndex & 0x01) ? HIGH : LOW); // Selector 0
-        digitalWrite(limitSwitchPins[1], (selectorIndex & 0x02) ? HIGH : LOW); // Selector 1
-        digitalWrite(limitSwitchPins[2], (selectorBit & 0x01) ? HIGH : LOW);   // Selector 2
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_0, (selectorIndex & 0x01) ? HIGH : LOW); // Selector 0
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_1, (selectorIndex & 0x02) ? HIGH : LOW); // Selector 1
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_2, (selectorBit & 0x01) ? HIGH : LOW);   // Selector 2
         delay(5); // make sure to read correct channel from mux
-        // Read the output from the multiplexer and store it in the array
         sensorData.limitSwitches[i] = (digitalRead(LIMIT_SWITCH_PIN_OUTPUT) == LOW); // Assumes active-low switches
     }
     // Placeholder IMU Data (Replace with actual IMU readings)
@@ -216,7 +229,18 @@ void makeDecision() {
 
 // **Motor update logic (to be implemented)**
 void updateMotors() {
-    // TODO: Implement motor control based on state
+    pidInputL = l_speed;
+    pidInputR = r_speed;
+
+    pidSetpointL = l_desired_speed;
+    pidSetpointR = r_desired_speed;
+
+    pidLeft.Compute();  // Update motor control for left track
+    pidRight.Compute(); // Update motor control for right track
+
+    // Set the motor PWM based on PID outputs
+    analogWrite(MOTOR_L_PWM, pidOutputL);  // Adjust PWM range (0-255)
+    analogWrite(MOTOR_R_PWM, pidOutputR);  // Adjust PWM range (0-255)
 }
 
 // **Stopping Motors**
@@ -225,4 +249,3 @@ void stopMotors() {
     analogWrite(MOTOR_L_PWM, 0);
     analogWrite(MOTOR_R_PWM, 0);
 }
-
