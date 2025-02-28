@@ -26,8 +26,7 @@ class GaussianNoise(Noise):
         """
         self.k = k
         self.dt = dt
-        ug_to_ms2 = 9.81e-6
-        self.sigma = k*ug_to_ms2 / (dt**2)
+        self.sigma = k / (dt**2)
     
     def apply(self, true_value, discretize=False):
         return true_value + np.random.normal(0,self.sigma, size=true_value.shape)

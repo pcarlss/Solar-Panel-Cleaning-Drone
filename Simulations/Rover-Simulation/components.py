@@ -1,20 +1,69 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
+from rover import PositionalInformation
 from area import SolarPanelArea
+from error import GaussianNoise
 
 class IMU:
-    def __init__(self):
-        self.prev_acceleration = [0, 0]  # [ax, ay] in mm/s²
-        self.prev_velocity = 0          # Scalar velocity in mm/s
-        self.prev_orientation = 0       # Angle in degrees (yaw)
-        self.prev_position = [0, 0]     # [x, y] position in mm
+    def __init__(self, time_step, k_linear, k_angular, position_offset=np.zeros((1,3)), angular_offset=np.eye(3,3), linear_cross_axis=np.eye(3,3), angular_cross_axis = np.eye(3,3)):
+        """IMU function.
 
-    def get_imu_data(self):
-        return 
-    
-    def get_position(self, positional_information):
-        return
+        Args:
+            position_offset (np.array, optional): Positional offset vector from actual turn center. Defaults to np.zeros((1,3)).
+            angular_offset (np.array, optional): Angular offset alignment matrix, define as 3-axis rotation matrix. Defaults to np.eye(3).
+            cross_axis (_type_, optional): . Defaults to np.eye(3).
+        """
+        # self.prev_acceleration = [0, 0]  # [ax, ay] in mm/s²
+        # self.prev_velocity = 0          # Scalar velocity in mm/s
+        # self.prev_orientation = 0       # Angle in degrees (yaw)
+        # self.prev_position = [0, 0]     # [x, y] position in mm
+        self.position_offset = position_offset
+        self.angular_offset = angular_offset
+        self.inv_angular_offset = np.invert(angular_offset)
+        self.angular_cross_axis = angular_cross_axis
+        self.inv_angular_cross_axis = np.invert(angular_cross_axis)
+        self.linear_cross_axis = linear_cross_axis
+        self.inv_linear_cross_axis = np.inv(linear_cross_axis)
+        self.time_step = time_step
+        ug_to_ms2 = 9.81e-6
+        dps_to_radps = np.pi()/180
+
+        self.linear_error_model = GaussianNoise(k_linear*ug_to_ms2, time_step)
+        self.angular_error_model = GaussianNoise(k_angular*dps_to_radps, time_step)
+
+        
+    def get_imu_data(self, positional_information: PositionalInformation, body_axis=True):
+
+        #obtain ground-truth values
+        ax_body = positional_information.linear_accel # linear component
+        ay_body = positional_information.linear_velocity * positional_information.turn_rate # centripetal component
+        az_body = 0
+
+        # column-vector representation
+        a_body = np.array([[ax_body,ay_body,az_body]]).T
+        w_body = np.array([[0,0,positional_information.turn_rate]]).T
+        alpha_body = np.array([[0,0,positional_information.turn_accel]]).T
+
+        # apply axis change
+        a_imu = a_body + np.cross(alpha_body,self.position_offset) + np.cross(w_body,np.cross(w_body,self.position_offset))
+        a_imu = self.inv_angular_offset@a_body
+        w_imu = self.inv_angular_offset@w_body
+
+        # Apply error functions
+        a_imu_err = self.linear_error_model.apply(self.linear_cross_axis@a_imu)
+        w_imu_err = self.angular_error_model.apply(self.angular_cross_axis@w_imu)
+
+
+        if not body_axis:
+            return a_imu_err, w_imu_err
+        
+
+        #revert to body frame
+        a_body_err = self.angular_offset@a_imu_err - np.cross(alpha_body,self.position_offset) - np.cross(w_body,np.cross(w_body,self.position_offset))
+        w_body_err = self.angular_offset@w_imu_err
+
+        return a_body_err, w_body_err
 
 class LimitSwitch:
    def __init__(self, solar_panel_area: SolarPanelArea, relative_pos):
