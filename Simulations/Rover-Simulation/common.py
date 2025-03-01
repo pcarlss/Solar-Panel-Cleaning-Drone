@@ -1,6 +1,7 @@
 from enum import Enum
 import math
 import random
+import numpy as np
 from dataclasses import dataclass
 
 IMU_ERROR = 0.05  # Example error factor for IMU
@@ -11,7 +12,24 @@ PANEL_DIMENSIONS = (500,700) #MM (width, length)
 CLEANER_WIDTH = 150  # mm
 ACCELERATION_STEP = 5  # mm/s^2
 
+LOCKOUT_COUNTDOWN = 100
+
+
 TIME_STEP = 10/1000 # s
+
+
+@dataclass()
+class PositionalInformation():
+    position: np.ndarray[2, float] # XY position, (m,m)
+    orientation: np.ndarray[2, float] # Unit vector orientation
+    distance_track: float = 0 # Variable to track current forward distance travelled in a single "go straight" operation, m
+    azimuth: float = 0 # Actual azimuth angle, same as unit vector orientation, rad
+    linear_velocity: float = 0 # Linear forward velocity, m/s
+    turn_rate: float = 0 # Turn rate, rad/s
+    linear_accel: float = 0 # Linear forward acceleration, m/s^2
+    turn_accel: float = 0 # Turning acceleration, rad/s^2
+    l_speed: float = 0 # Left track speed, rad/s
+    r_speed: float = 0 # Right track speed, rad/s
 
 @dataclass
 class Point:
@@ -52,3 +70,6 @@ class RadioMessage(Enum):
     CLEANINGDONETAKEMEAWAY = 3
     NOMESSAGE = 4
 
+class MotorStates():
+    MOTOR_EN = 1
+    MOTOR_DIS = 0
