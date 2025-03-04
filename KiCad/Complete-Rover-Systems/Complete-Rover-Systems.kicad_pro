@@ -417,6 +417,10 @@
     [
       "65fa614f-1b12-4cb5-96ed-863f656d7dcb",
       "KY-41"
+    ],
+    [
+      "06f4795f-7def-4ffc-a8ad-cc08f8d1d77c",
+      "IMU"
     ]
   ],
   "text_variables": {}
