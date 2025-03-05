@@ -1,23 +1,10 @@
 from components import IMU, LimitSwitch, RotaryEncoder, TrackMotor, CleaningMotor, SimpleMotor, DCMotorDiscrete, PIDController
-from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates
+from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessage, SearchForCornerStates, PositionalInformation, MotorStates, LOCKOUT_COUNTDOWN
 from dataclasses import dataclass
 from typing import List, Literal
 from scipy.ndimage import rotate
 import numpy as np
 
-
-@dataclass()
-class PositionalInformation():
-    position: np.ndarray[2, float] # XY position, (m,m)
-    orientation: np.ndarray[2, float] # Unit vector orientation
-    distance_track: float = 0 # Variable to track current forward distance travelled in a single "go straight" operation, m
-    azimuth: float = 0 # Actual azimuth angle, same as unit vector orientation, rad
-    linear_velocity: float = 0 # Linear forward velocity, m/s
-    turn_rate: float = 0 # Turn rate, rad/s
-    linear_accel: float = 0 # Linear forward acceleration, m/s^2
-    turn_accel: float = 0 # Turning acceleration, rad/s^2
-    l_speed: float = 0 # Left track speed, rad/s
-    r_speed: float = 0 # Right track speed, rad/s
 
 class Rover:
     def __init__(self, solar_panel_area, time_step, position = np.array([0,0]), orientation = np.array([1,0])):
@@ -38,8 +25,9 @@ class Rover:
         # Estimated values for the above
         self.estimated_pos = PositionalInformation(
             position=np.array([0,0]), 
-            orientation=np.array([0,1]))
+            orientation=np.array([1,0]))
 
+        self.imu_info = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]
         # Physical constants
         self.axle_length = 0.170 #170mm
         self.wheel_radius = 0.025 #25mm
@@ -50,9 +38,9 @@ class Rover:
         self.time_step = time_step
 
         # Sensor definitions
-        self.imu = IMU()
-        self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.25)
-        self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.25)
+        self.imu = IMU(time_step=self.time_step, k_linear=230, k_angular=0.015)
+        self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.1)
+        self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.1)
         
         # Limit switches identified by last three chars: l/r for left/right, f/b for front/back, i/o for inboard/outboard
         self.limit_switch_lfo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.105]))
@@ -71,7 +59,8 @@ class Rover:
         self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
         self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
         
-        self.orientation_pid = PIDController(Kp=0.75, Ki=0, Kd=0.3, dt=time_step)
+        self.positional_pid = PIDController(Kp=10, dt=time_step)
+        self.orientation_pid = PIDController(Kp=0.95, Ki=0, Kd=0.2, dt=time_step)
         self.turn_compensation_factor = 1.08 # determined through trial and error 
 
         # Decision States
@@ -81,6 +70,7 @@ class Rover:
         self.inner_loop_states = InnerLoopStates.FOLLOWPATH
         self.radio_message = RadioMessage.NOMESSAGE
 
+        self.motor_state = MotorStates.MOTOR_EN
         # Desired setpoints for PIDs
         self.l_desired_speed = 0
         self.r_desired_speed = 0   
@@ -89,6 +79,8 @@ class Rover:
         
         self.desired_azimuth = self.positional_information.azimuth # Used to track to correct azimuthal angle in a rotation operation
         self.desired_distance = 0 # Used to go the correct distance forwards in a straight-line operation
+
+        self.lockout_countdown = 0
         
     def set_desired_azimuth(self, desired_azimuth):
         """Tell the robot to move to a certain orientation"""
@@ -113,7 +105,26 @@ class Rover:
         self.set_trajectory(desired_speed=desired_speed, desired_turn_rate=desired_turn_rate)
         
         return desired_speed, desired_turn_rate
+    
+    def update_positional_trajectory(self, use_sensors=True):
+        if use_sensors:
+            ref = self.estimated_pos
+        else:
+            ref = self.positional_information
 
+        self.desired_distance = self.desired_distance - ref.linear_velocity * self.time_step
+        desired_speed = self.positional_pid.calculate(0, -1*self.desired_distance)
+
+        if self.desired_distance < 0:
+            self.desired_distance = 0
+            self.stop_motors()
+            self.set_trajectory(0,0)
+            return
+
+        desired_turn_rate = self.orientation_pid.calculate(self.desired_azimuth, ref.azimuth)
+        self.set_trajectory(desired_speed, desired_turn_rate)
+        return desired_speed, desired_turn_rate
+        
     def set_desired_distance(self, desired_distance):
         self.desired_distance = desired_distance
         pass
@@ -254,6 +265,18 @@ class Rover:
         return self.positional_information
 
     def compute_travel(self, use_sensors=True):
+        """For this to be accurate, you must have updated:
+                1. turn rate
+                2. linear velocity
+                3. r_speed
+                4. l_speed
+
+        Args:
+            use_sensors (bool, optional): _description_. Defaults to True.
+
+        Returns:
+            _type_: _description_
+        """
         if use_sensors:
             ref = self.estimated_pos
         else:
@@ -265,7 +288,7 @@ class Rover:
         
         # Rotate d_theta degrees
         azimuth = (ref.azimuth + d_theta) % (2*np.pi)
-        
+
         x, y = ref.orientation
         new_x = x*np.cos(d_theta) - y*np.sin(d_theta)
         new_y = x*np.sin(d_theta) + y*np.cos(d_theta)
@@ -319,6 +342,10 @@ class Rover:
         else:
             pos_ref = self.positional_information
         # For now, using absolute information on speed
+        if self.motor_state == MotorStates.MOTOR_DIS:
+            self.track_motor_l.update(0)
+            self.track_motor_r.update(0)
+            return 0, 0
         control_voltage_l = self.track_pid_l.calculate(self.l_desired_speed, pos_ref.l_speed)
         control_voltage_r = self.track_pid_r.calculate(self.r_desired_speed, pos_ref.r_speed)
         self.track_motor_l.update(control_voltage_l)
@@ -334,9 +361,24 @@ class Rover:
         
         self.estimated_pos.l_speed = l_enc_speed
         self.estimated_pos.r_speed = r_enc_speed
-        self.estimated_pos.linear_velocity, self.estimated_pos.turn_rate = self.compute_trajectory()
+        # _, self.estimated_pos.turn_rate = self.compute_trajectory()
         
-        self.estimated_pos.position, self.estimated_pos.orientation, self.estimated_pos.azimuth = self.compute_travel()
+
+        # IMU estimates
+        self.imu_info = self.imu.get_imu_data(self.positional_information, body_axis=True)
+        self.estimated_pos.linear_accel = self.imu_info[0][0][0]
+        self.estimated_pos.turn_rate = self.imu_info[1][2][0]
+
+
+        if l_enc_speed == 0 and r_enc_speed == 0 and self.estimated_pos.linear_accel <= 0.25:
+            self.estimated_pos.linear_accel = 0
+            self.estimated_pos.linear_velocity = 0
+
+
+        else:
+            self.estimated_pos.linear_velocity = self.estimated_pos.linear_velocity + self.estimated_pos.linear_accel*self.time_step
+            self.estimated_pos.position = self.estimated_pos.position + self.estimated_pos.orientation * self.estimated_pos.linear_velocity * self.time_step
+        _, self.estimated_pos.orientation, self.estimated_pos.azimuth = self.compute_travel()
         
         pass
     
@@ -415,12 +457,19 @@ class Rover:
 
     def make_decision(self):
         """DECISION TREE HEAD (1)"""
+        if self.motor_state == MotorStates.MOTOR_DIS:
+            self.lockout_countdown = self.lockout_countdown - 1
+            if self.lockout_countdown <= 0:
+                self.motor_state = MotorStates.MOTOR_EN        
         if self.radio_message == RadioMessage.NOMESSAGE:
             return
         elif self.radio_message == RadioMessage.STARTCLEANINGOK:
             self.decision_state = DecisionStates.SEARCHFORCORNER
 
-      
+
+        # check state tied to countdown
+        # stopmotor()
+        #early return
         #if opposing limit switch pairs are on, stop
 
         match self.decision_state:
@@ -485,9 +534,13 @@ class Rover:
 
     def stop_motors(self): 
         """CONCRETE ACTION"""
-        self.cleaning_motors.stop()
-        self.track_motor_l.stop()
-        self.track_motor_r.stop()
+        self.track_motor_l.update(0)
+        self.track_motor_r.update(0)
+        self.track_pid_l.reset()
+        self.track_pid_r.reset()
+        self.motor_state = MotorStates.MOTOR_DIS
+        self.lockout_countdown = LOCKOUT_COUNTDOWN
+
     
  
             

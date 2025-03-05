@@ -1,12 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
-from rover import PositionalInformation
 from area import SolarPanelArea
 from error import GaussianNoise
+from common import PositionalInformation
 
 class IMU:
-    def __init__(self, time_step, k_linear, k_angular, position_offset=np.zeros((1,3)), angular_offset=np.eye(3,3), linear_cross_axis=np.eye(3,3), angular_cross_axis = np.eye(3,3)):
+    def __init__(self, time_step, k_linear, k_angular, position_offset=np.zeros((3,1)), angular_offset=np.eye(3,3), linear_cross_axis=np.eye(3,3), angular_cross_axis = np.eye(3,3)):
         """IMU function.
 
         Args:
@@ -20,14 +20,14 @@ class IMU:
         # self.prev_position = [0, 0]     # [x, y] position in mm
         self.position_offset = position_offset
         self.angular_offset = angular_offset
-        self.inv_angular_offset = np.invert(angular_offset)
+        self.inv_angular_offset = np.linalg.inv(angular_offset)
         self.angular_cross_axis = angular_cross_axis
-        self.inv_angular_cross_axis = np.invert(angular_cross_axis)
+        self.inv_angular_cross_axis = np.linalg.inv(angular_cross_axis)
         self.linear_cross_axis = linear_cross_axis
-        self.inv_linear_cross_axis = np.inv(linear_cross_axis)
+        self.inv_linear_cross_axis = np.linalg.inv(linear_cross_axis)
         self.time_step = time_step
         ug_to_ms2 = 9.81e-6
-        dps_to_radps = np.pi()/180
+        dps_to_radps = np.pi/180
 
         self.linear_error_model = GaussianNoise(k_linear*ug_to_ms2, time_step)
         self.angular_error_model = GaussianNoise(k_angular*dps_to_radps, time_step)
@@ -46,7 +46,7 @@ class IMU:
         alpha_body = np.array([[0,0,positional_information.turn_accel]]).T
 
         # apply axis change
-        a_imu = a_body + np.cross(alpha_body,self.position_offset) + np.cross(w_body,np.cross(w_body,self.position_offset))
+        a_imu = a_body + np.cross(alpha_body,self.position_offset, axis=0) + np.cross(w_body,np.cross(w_body,self.position_offset, axis=0), axis=0)
         a_imu = self.inv_angular_offset@a_body
         w_imu = self.inv_angular_offset@w_body
 
@@ -60,7 +60,7 @@ class IMU:
         
 
         #revert to body frame
-        a_body_err = self.angular_offset@a_imu_err - np.cross(alpha_body,self.position_offset) - np.cross(w_body,np.cross(w_body,self.position_offset))
+        a_body_err = self.angular_offset@a_imu_err - np.cross(alpha_body,self.position_offset, axis=0) - np.cross(w_body,np.cross(w_body,self.position_offset, axis=0), axis=0)
         w_body_err = self.angular_offset@w_imu_err
 
         return a_body_err, w_body_err

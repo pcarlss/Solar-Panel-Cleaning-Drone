@@ -5,7 +5,7 @@ import numpy as np
 from scipy import signal
 from matplotlib.animation import FuncAnimation
 import matplotlib.animation as animation
-from components import DCMotorDiscrete, SimpleMotor, PIDController, RotaryEncoder
+from components import DCMotorDiscrete, SimpleMotor, PIDController, RotaryEncoder, IMU
 from area import SolarPanelArea
 from rover import Rover
 from scipy.interpolate import UnivariateSpline
@@ -561,15 +561,15 @@ def limit_switch_test():
         
 def rotational_pid_test():
 
-    N = 750
+    N = 1000
         
     xs = np.linspace(0,N*0.01,N)
     
     fig, (ax1, ax2) = plt.subplots(1,2)
     fig.set_size_inches(16,9)
-    ax1.set_ylim(0,1.5)
+    # ax1.set_ylim(0,1.5)
     ax1.set_xlim(0,xs[-1])
-    runs = 100
+    runs = 1
     
     
     offset = []
@@ -583,16 +583,17 @@ def rotational_pid_test():
         rate_list = []
         desired_rate_list = []
         # turn_magnitude = np.random.choice([-1,1])*((np.random.rand())*np.pi/4 + np.pi/2) # turns near +-pi/2
-        turn_magnitude = np.random.choice([-1,1])*(np.pi/2) # Turns at exactly +-pi/2
+        turn_magnitude = (np.pi/2) # Turns at exactly +-pi/2
         
 
         rover.set_desired_azimuth(turn_magnitude)
         for t in range(N):
+            rover.update_sensors()            
             _, desired = rover.update_turning_trajectory(use_sensors=True)
-            rover.update_sensors()        
             rover.update_motors(use_sensors=True)
             rover.update_position()
             _, actual = rover.compute_trajectory(use_sensors=False)
+
             
             estimated_az.append(rover.estimated_pos.azimuth)
             rate_list.append(actual)
@@ -601,29 +602,106 @@ def rotational_pid_test():
             
             desired_az.append(rover.desired_azimuth)
 
-        ax1.plot(xs, [az/turn_magnitude for az in az_list], 'b', linewidth=20/runs)
-        ax1.plot(xs, [est/turn_magnitude for est in estimated_az], 'r', linewidth=20/runs)
+        ax1.plot(xs, az_list, 'b', linewidth=min(20/runs,1))
+        ax1.plot(xs, estimated_az, 'r', linewidth=min(20/runs,1))
         
         offset.append(((az_list[-1] - desired_az[-1] + np.pi)%(2*np.pi) - np.pi)/turn_magnitude)
         
     # print(np.average(offset))
-    ax1.plot(xs, [des/turn_magnitude for des in desired_az], 'k--')
+    ax1.plot(xs, desired_az, 'k--')
     
-    n = runs//10
-    p,x = np.histogram(offset, bins=n)
-    x = x[:-1] + (x[1] - x[0])/2    
-    f1 = UnivariateSpline(x, p, s=n)
-    f2 = UnivariateSpline(x, p, s=runs)
-    ax2.plot(x, f1(x), 'b', linewidth=0.5)
-    ax2.plot(x, f2(x), 'k--')
+    # n = runs//10
+    # p,x = np.histogram(offset, bins=n)
+    # x = x[:-1] + (x[1] - x[0])/2    
+    # f1 = UnivariateSpline(x, p, s=n)
+    # f2 = UnivariateSpline(x, p, s=runs)
+    # ax2.plot(x, f1(x), 'b', linewidth=0.5)
+    # ax2.plot(x, f2(x), 'k--')
     
 
     
 
     plt.show()
+
+def linear_pid_test():
+
+    N = 500
+        
+    xs = np.linspace(0,N*0.01,N)
+    dt = 0.01
     
-def rover_imu_test():
+    fig, (ax1, ax2, ax3) = plt.subplots(1,3)
+    fig.set_size_inches(16,9)
+    ax1.set_xlim(0,xs[-1])
+    runs = 1
+    
+    
+    offset = []
+    
+    for r in range(runs):
+        panel = SolarPanelArea(1,1,100)
+        rover = Rover(panel, 0.01, np.array([0,0]), np.array([1,0]))   
+        # rover.set_trajectory(0.05,0)
+
+        pos_list = []
+        est_pos_list = []
+        est_vel_list = []
+        vel_list = []
+        accel_list = []
+        imu_accel_list = []
+        imu_vel_list = [0]
+        imu_pos_list = [0]
+        state_list = []
+
+        rover.set_desired_distance(0.1)
+        for t in range(N):
+            if rover.motor_state:
+                rover.update_positional_trajectory()
+            rover.update_sensors()
+
+            rover.make_decision()
+            state_list.append(rover.motor_state)
+            pos_list.append(rover.positional_information.position[0])
+            vel_list.append(rover.positional_information.linear_velocity)
+            accel_list.append(rover.positional_information.linear_accel)
+            est_pos_list.append(rover.estimated_pos.position[0])
+            est_vel_list.append(rover.estimated_pos.linear_velocity)
+            imu_accel_list.append(rover.imu_info[0][0])
+            imu_vel_list.append(imu_vel_list[-1] + imu_accel_list[-1]*dt)
+            imu_pos_list.append(imu_pos_list[-1] + imu_vel_list[-1]*dt)
+
+            rover.update_motors(use_sensors=True)
+            rover.update_position()
+
+        imu_vel_list = imu_vel_list[1:]
+        imu_pos_list = imu_pos_list[1:]
+
+        ax1.plot(xs, accel_list, 'k--')
+        ax1.plot(xs, imu_accel_list, 'r')
+        
+        ax2.plot(xs, vel_list, 'k--')
+        ax2.plot(xs, est_vel_list, 'b')
+        ax2.plot(xs, imu_vel_list, 'r')
+        # ax2.plot(xs, state_list, 'g')
+        ax3.plot(xs, np.full_like(xs, 0.1), 'g')
+        ax3.plot(xs, est_pos_list, 'b')
+        ax3.plot(xs, pos_list, 'k--')
+        # ax3.plot(xs, state_list, 'g')
+
+        ax3.plot(xs, imu_pos_list, 'r')
+
+
+    
+    plt.show()
+
+    
     pass
+    
+# def rover_imu_test():
+#     # dt = 0.01
+    
+
+#     pass
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -640,8 +718,8 @@ if __name__ == '__main__':
     # rover_sensor_movement_test()
     # panel_bounds_test()
     # limit_switch_test()
-    rotational_pid_test()
-    
+    # rotational_pid_test()
+    linear_pid_test()
     
 
     pass
