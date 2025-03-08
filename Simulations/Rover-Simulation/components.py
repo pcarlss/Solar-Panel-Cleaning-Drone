@@ -175,8 +175,6 @@ class CleaningMotor:
     def is_cleaning(self):
         return self.is_cleaning
 
-
-
 class SimpleMotor():
     def __init__(self, Vmax=12, Vmin=-12, speedmax=10, speedmin=-10):
         """

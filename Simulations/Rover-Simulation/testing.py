@@ -702,6 +702,15 @@ def linear_pid_test():
     
 
 #     pass
+def rot_ang():
+
+    motor = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3, dt=0.001)
+
+    motor.update(12)
+    x = motor.get_angular_acceleration()
+    print(x)
+
+
 
 if __name__ == '__main__':
     # Write which test you want to run here
@@ -717,9 +726,10 @@ if __name__ == '__main__':
     # # rotary_encoder_test()
     # rover_sensor_movement_test()
     # panel_bounds_test()
-    # limit_switch_test()
+    limit_switch_test()
     # rotational_pid_test()
-    linear_pid_test()
+    # linear_pid_test()
+    # rot_ang()
     
 
     pass

@@ -52,8 +52,8 @@ class Rover:
         self.limit_switch_rbo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.105]))
         self.limit_switch_rbi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.1]))
         
-        self.track_motor_l = DCMotorDiscrete(K=1.14, dt=time_step)
-        self.track_motor_r = DCMotorDiscrete(K=1.14, dt=time_step)
+        self.track_motor_l = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3,  dt=time_step)
+        self.track_motor_r = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
         self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
