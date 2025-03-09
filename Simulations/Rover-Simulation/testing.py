@@ -183,8 +183,8 @@ def motor_test():
     sim_time = 5.0  # Total simulation time [s]
     steps = int(sim_time/dt)
     
-    motor = DCMotorDiscrete(K = 1.14, dt=dt)
-    pid = PIDController(Kp=3, Ki=10, Kd=0.05, dt=dt)
+    motor = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3,  dt=dt)
+    pid = PIDController(Kp=0, Ki=60, dt=dt)
     
     # motor = SimpleMotor()
     # pid = PIDController(Kp=0, Ki=5, Kd=0, dt=dt)
@@ -200,9 +200,9 @@ def motor_test():
         if i < 100:
             new_target = 0
         elif i < 300:
-            new_target = 6.8
+            new_target = 5
         else:
-            new_target = -6.8
+            new_target = -5
         
         # Get current speed
         current_speed = motor.get_speed()
@@ -226,7 +226,7 @@ def motor_test():
     plt.plot(time, speed, 'b-', label='Actual Speed')
     plt.plot(time, voltage_input, 'g--', label='Control Voltage')
     plt.xlim(0,5)
-    plt.ylim(-12.5,12.5)
+    # plt.ylim(-12.5,12.5)
     
     plt.xlabel('Time [s]')
     plt.ylabel('Angular Velocity [rad/s] / Voltage [V]')
@@ -344,7 +344,7 @@ def rover_sensor_movement_test():
     time_arange = np.arange(0, time_stop, time_step)
 
     rover = Rover(panel, time_step)
-    rover.set_trajectory(0.05, 0.7)
+    rover.set_trajectory(0, 0.5)
 
     l_speed_actual = []
     l_speed_enc = []
@@ -653,7 +653,7 @@ def linear_pid_test():
         imu_pos_list = [0]
         state_list = []
 
-        rover.set_desired_distance(0.1)
+        rover.set_desired_distance(1)
         for t in range(N):
             if rover.motor_state:
                 rover.update_positional_trajectory()
@@ -726,9 +726,9 @@ if __name__ == '__main__':
     # # rotary_encoder_test()
     # rover_sensor_movement_test()
     # panel_bounds_test()
-    limit_switch_test()
+    # limit_switch_test()
     # rotational_pid_test()
-    # linear_pid_test()
+    linear_pid_test()
     # rot_ang()
     
 

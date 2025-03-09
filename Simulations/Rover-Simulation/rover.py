@@ -56,10 +56,10 @@ class Rover:
         self.track_motor_r = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
-        self.track_pid_l = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
-        self.track_pid_r = PIDController(Kp=0.15, Ki=3.5, Kd=0.025, dt=time_step)
+        self.track_pid_l = PIDController(Kp=0, Ki=5, Kd=0, dt=time_step)
+        self.track_pid_r = PIDController(Kp=0, Ki=5, Kd=0, dt=time_step)
         
-        self.positional_pid = PIDController(Kp=10, dt=time_step)
+        self.positional_pid = PIDController(Kp=0.15, dt=time_step)
         self.orientation_pid = PIDController(Kp=0.95, Ki=0, Kd=0.2, dt=time_step)
         self.turn_compensation_factor = 1.08 # determined through trial and error 
 
