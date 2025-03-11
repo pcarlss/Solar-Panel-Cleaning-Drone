@@ -1,6 +1,8 @@
 #include <Wire.h>
 #include <PID_v1.h>
 
+//next steps -> sensor processing -> sensor decision making -> edge detection handling (stop immediately, continue, or turn) -> motor pid / control -> line up pins to the right pinout (deal with analog pins appropriately), 
+
 // Define motor pins
 #define MOTOR_L_PWM 5
 #define MOTOR_L_IN1 4
@@ -32,6 +34,14 @@
 volatile long leftEncoderCount = 0;
 volatile long rightEncoderCount = 0;
 
+volatile long previousLeftEncoderCount = 0;
+volatile long previousRightEncoderCount = 0;
+volatile unsigned long previousEncoderTime = 0;  // For tracking time between encoders
+
+// Define variables to store encoder velocity (calculated in ISR)
+volatile float leftEncoderVelocity = 0.0;
+volatile float rightEncoderVelocity = 0.0;
+
 // PID control variables
 double pidInputL, pidOutputL, pidSetpointL;
 double pidInputR, pidOutputR, pidSetpointR;
@@ -58,19 +68,27 @@ RadioMessage radioMessage = NOMESSAGE;
 int l_speed = 0;
 int r_speed = 0;
 
+
+unsigned long lastTime = 0;  // For tracking time delta for integration
+
 // Struct to store sensor data
 struct SensorData {
     bool limitSwitches[LIMIT_SWITCH_COUNT];
     float accelX, accelY, accelZ;
     float gyroX, gyroY, gyroZ;
-    long leftEncoder;
-    long rightEncoder;
+    long leftEncoder, rightEncoder;
+    long leftEncoderVelocity, rightEncoderVelocity;
+    float lastPosition = 0.0, imuVelocity = 0.0, imuPosition = 0.0;    
 };
 
 SensorData sensorData;
 
 // Function prototypes
 void updateData();
+float getVelocityFromEncoder(long currentEncoder, long previousEncoder, unsigned long currentTime);
+void getVelocityIMU();
+void getPositionIMU();
+void updateLimitSwitches();
 
 void encoderISR_L();
 void encoderISR_R();
@@ -133,60 +151,108 @@ void loop() {
     updatePosition();
     makeDecision();
 }
-// **Update All Sensor Data**
+
+// Function to update data (integrates velocity and position from IMU)
 void updateData() {
-    // Read limit switch states
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        int selectorIndex = i / 2; // Select 1 bit for each multiplexer channel
-        int selectorBit = i % 2;   // Select low or high bit
+    // Update limit switch states (no changes)
+    updateLimitSwitches();
 
-        // Write the selector pin values to the multiplexer
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_0, (selectorIndex & 0x01) ? HIGH : LOW); // Selector 0
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_1, (selectorIndex & 0x02) ? HIGH : LOW); // Selector 1
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_2, (selectorBit & 0x01) ? HIGH : LOW);   // Selector 2
-        delay(5); // make sure to read correct channel from mux
-        sensorData.limitSwitches[i] = (digitalRead(LIMIT_SWITCH_PIN_OUTPUT) == LOW); // Assumes active-low switches
-    }
-    // Placeholder IMU Data (Replace with actual IMU readings)
-    sensorData.accelX = 0.0;
-    sensorData.accelY = 0.0;
-    sensorData.accelZ = 0.0;
-    sensorData.gyroX = 0.0;
-    sensorData.gyroY = 0.0;
-    sensorData.gyroZ = 0.0;
+   // Debug print sensor data
+   Serial.print("Left Velocity: ");
+   Serial.print(leftEncoderVelocity);
+   Serial.print(", Right Velocity: ");
+   Serial.println(rightEncoderVelocity);
 
-    // Read encoder counts
-    sensorData.leftEncoder = leftEncoderCount;
-    sensorData.rightEncoder = rightEncoderCount;
-
+    // Get IMU data (acceleration and velocity)
+    getVelocityIMU();
+    getPositionIMU();
+    
     // Debug print sensor data
     Serial.print("Encoders: L=");
     Serial.print(sensorData.leftEncoder);
     Serial.print(", R=");
     Serial.print(sensorData.rightEncoder);
-    Serial.print(" | Limit Switches: ");
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        Serial.print(sensorData.limitSwitches[i]);
-        Serial.print(" ");
-    }
-    Serial.println();
+    Serial.print(" | Left Velocity: ");
+    Serial.print(sensorData.leftEncoderVelocity);
+    Serial.print(", Right Velocity: ");
+    Serial.print(sensorData.rightEncoderVelocity);
+    Serial.print(" | IMU Velocity: ");
+    Serial.print(sensorData.imuVelocity);
+    Serial.print(", IMU Position: ");
+    Serial.println(sensorData.imuPosition);
 }
 
-// **Interrupt Service Routines for Encoders**
-void encoderISR_L() {
-    if (digitalRead(ENCODER_L_A) == digitalRead(ENCODER_L_B)) {
-        leftEncoderCount++;
-    } else {
-        leftEncoderCount--;
+// Method to calculate velocity based on encoder counts (using time delta)
+float getVelocityFromEncoder(long currentEncoder, long previousEncoder, unsigned long currentTime) {
+    float deltaEncoder = currentEncoder - previousEncoder;
+    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
+    lastTime = currentTime;  // Update last time for the next calculation
+    float velocity = deltaEncoder / deltaTime;  // Encoder ticks per second
+    return velocity;
+}
+
+// Method to compute velocity from IMU (integrating acceleration over time)
+void getVelocityIMU() {
+    unsigned long currentTime = millis();
+    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
+    float accelX = sensorData.accelX;  // Assume sensorData.accelX is read from IMU
+    sensorData.imuVelocity += accelX * deltaTime;  // Integrate acceleration to get velocity
+    lastTime = currentTime;  // Update last time
+}
+
+// Method to compute position from IMU (integrating velocity over time)
+void getPositionIMU() {
+    unsigned long currentTime = millis();
+    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
+    sensorData.imuPosition += sensorData.imuVelocity * deltaTime;  // Integrate velocity to get position
+    lastTime = currentTime;  // Update last time
+}
+
+// Method to update limit switch states (no changes)
+void updateLimitSwitches() {
+    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
+        int selectorIndex = i / 2;  // Select 1 bit for each multiplexer channel
+        int selectorBit = i % 2;   // Select low or high bit
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_0, (selectorIndex & 0x01) ? HIGH : LOW);  // Selector 0
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_1, (selectorIndex & 0x02) ? HIGH : LOW);  // Selector 1
+        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_2, (selectorBit & 0x01) ? HIGH : LOW);    // Selector 2
+        delay(5);  // make sure to read correct channel from mux
+        sensorData.limitSwitches[i] = (digitalRead(LIMIT_SWITCH_PIN_OUTPUT) == LOW);  // Assumes active-low switches
     }
+}
+
+void encoderISR_L() {
+    unsigned long currentTime = millis();
+    
+    // Calculate delta time in seconds
+    float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
+    
+    // Calculate the change in encoder count for the left encoder
+    long deltaEncoder = leftEncoderCount - previousLeftEncoderCount;
+
+    // Compute velocity (change in encoder count divided by time delta)
+    leftEncoderVelocity = deltaEncoder / deltaTime;
+
+    // Update previous encoder count and time for next calculation
+    previousLeftEncoderCount = leftEncoderCount;
+    previousEncoderTime = currentTime;
 }
 
 void encoderISR_R() {
-    if (digitalRead(ENCODER_R_A) == digitalRead(ENCODER_R_B)) {
-        rightEncoderCount++;
-    } else {
-        rightEncoderCount--;
-    }
+    unsigned long currentTime = millis();
+
+    // Calculate delta time in seconds
+    float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
+    
+    // Calculate the change in encoder count for the right encoder
+    long deltaEncoder = rightEncoderCount - previousRightEncoderCount;
+
+    // Compute velocity (change in encoder count divided by time delta)
+    rightEncoderVelocity = deltaEncoder / deltaTime;
+
+    // Update previous encoder count and time for next calculation
+    previousRightEncoderCount = rightEncoderCount;
+    previousEncoderTime = currentTime;
 }
 
 // **Update position based on encoder readings**
@@ -287,6 +353,8 @@ void updateMotors() {
 }
 
 void makeDecision() {
+    //check limit switches to see if action is required
+    
     switch (decisionState) {
         case SEARCHFORCORNER:
             searchForCorner();
