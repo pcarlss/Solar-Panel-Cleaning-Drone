@@ -71,6 +71,15 @@ class LimitSwitch:
        self.relative_pos = relative_pos
 
    def is_pressed(self, rover_position, rover_azimuth):
+        """checks if the limit switch is pressed. PRESSED MEANS IT'S ON THE PANEL
+
+        Args:
+            rover_position (_type_): _description_
+            rover_azimuth (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         #compute switch location
         #check solarpanel area if switch detects edge
         x, y = self.get_position(rover_position, rover_azimuth)
@@ -267,14 +276,17 @@ class DCMotorDiscrete:
         return self.x[1, 0]
 
 class PIDController:
-    def __init__(self, Kp=1.0, Ki=0.0, Kd=0.0, dt=0.1):
+    def __init__(self, Kp=1.0, Ki=0.0, Kd=0.0, Kff = 0, dt=0.1, clamp_value=0):
         """
         Generic PID controller with settable Kp, Kd, Ki, and dt
         """
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
+        self.Kff = Kff
         self.dt = dt
+        self.clamp_value=clamp_value
+        
         self.reset()
         
     def reset(self):
@@ -304,5 +316,10 @@ class PIDController:
         D = self.Kd * (self.error - self.previous_error) / self.dt
         self.previous_error = self.error
         
-        return P + I + D
+        FF = self.Kff*setpoint
+        
+        control_voltage =  P + I + D + FF
+        if abs(control_voltage) < self.clamp_value:
+            return 0
+        return control_voltage
  

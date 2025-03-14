@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import IntEnum
 import math
 import random
 import numpy as np
@@ -12,7 +12,7 @@ PANEL_DIMENSIONS = (500,700) #MM (width, length)
 CLEANER_WIDTH = 150  # mm
 ACCELERATION_STEP = 5  # mm/s^2
 
-LOCKOUT_COUNTDOWN = 100
+LOCKOUT_COUNTDOWN = 20
 
 
 TIME_STEP = 10/1000 # s
@@ -39,7 +39,7 @@ class Point:
 class OutOfBoundsError(Exception):
     pass
 
-class SearchForCornerStates(Enum):
+class SearchForCornerStates(IntEnum):
     MOVEBACKWARDSUNTILEDGE = 1
     ALIGNWITHEDGE = 2
     TURNRIGHT = 3
@@ -47,16 +47,16 @@ class SearchForCornerStates(Enum):
     MOVEBACKWARDSUNTILCORNER = 5
     DONE = 6
 
-class OuterLoopStates(Enum):
+class OuterLoopStates(IntEnum):
     FOLLOWEDGE = 1
     TURNLEFT = 2
     DONE = 3
-class InnerLoopStates(Enum):
+class InnerLoopStates(IntEnum):
     FOLLOWPATH = 1
     TURNLEFT = 2
     DONE = 3
 
-class DecisionStates(Enum):
+class DecisionStates(IntEnum):
     IDLE = 0
     SEARCHFORCORNER = 1
     BEGINCLEANING = 2
@@ -64,7 +64,7 @@ class DecisionStates(Enum):
     CLEANINNERLOOPS = 4
     DONE = 5
 
-class RadioMessage(Enum):
+class RadioMessage(IntEnum):
     STARTCLEANINGOK = 1
     STOPCLEANING = 2
     CLEANINGDONETAKEMEAWAY = 3

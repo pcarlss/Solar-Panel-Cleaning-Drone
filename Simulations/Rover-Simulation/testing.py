@@ -9,7 +9,7 @@ from components import DCMotorDiscrete, SimpleMotor, PIDController, RotaryEncode
 from area import SolarPanelArea
 from rover import Rover
 from scipy.interpolate import UnivariateSpline
-
+from common import RadioMessage, SearchForCornerStates, OuterLoopStates, InnerLoopStates
 
 from error import GaussianProportionalError, GaussianDerivativeError, GaussianNoise, GaussMarkovBias
 
@@ -113,7 +113,6 @@ def imu_test():
 
     pass
 
-
 def gauss_error_test():
     x = np.linspace(0, 10, 100)
     real_y = np.sin(x)
@@ -182,9 +181,9 @@ def motor_test():
     dt = 0.01  # Time step [s]
     sim_time = 5.0  # Total simulation time [s]
     steps = int(sim_time/dt)
-    
-    motor = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3,  dt=dt)
-    pid = PIDController(Kp=0, Ki=60, dt=dt)
+
+    motor = DCMotorDiscrete(K=1.14, J=4.785E-4, L=10e-3, R=30, dt=dt)
+    pid = PIDController(Kp=0.15, Ki=3, Kd=0, Kff=3.779, dt=dt)
     
     # motor = SimpleMotor()
     # pid = PIDController(Kp=0, Ki=5, Kd=0, dt=dt)
@@ -197,14 +196,19 @@ def motor_test():
     # Simulation loop
     for i in range(steps):
         # Update target speed at specific times
+        control_voltage=12*(i/steps)
         if i < 100:
             new_target = 0
+            # control_voltage=0
         elif i < 300:
-            new_target = 5
+            new_target = 3
+            # control_voltage=12            
         else:
-            new_target = -5
+            new_target = -3
+            # control_voltage=-12
         
         # Get current speed
+        
         current_speed = motor.get_speed()
         
         # Calculate control voltage using PID controller
@@ -235,6 +239,7 @@ def motor_test():
     plt.legend()
     plt.tight_layout()
     plt.show()   
+    print(target)
 
 def panel_test():
     a = SolarPanelArea(1, 1, 10)
@@ -250,7 +255,7 @@ def rover_movement_test():
     time_arange = np.arange(0, time_stop, time_step)
 
     rover = Rover(panel, time_step)
-    rover.set_trajectory(0.05, 1)
+    rover.set_trajectory(0.1,0)
 
     print(f"Desired speeds: {rover.l_desired_speed, rover.r_desired_speed}")
 
@@ -270,13 +275,14 @@ def rover_movement_test():
         or_ys.append(rover.positional_information.orientation[1])
         
         
-    # scale = 0.25
-    # plt.xlim(-0.05,0.25)
-    # plt.ylim(0,0.25)
+
     
     fig, ax = plt.subplots(1,1)
     path, = ax.plot(plot_xs, plot_ys, 'k--', label='Rover path')
     r_point, = ax.plot(0,0,"ro", label='Rover CG')
+    
+    ax.set_xlim(-0.05,0.5)
+    ax.set_ylim(-0.05,0.15)
     
     arr_scale = 0.0075
     or_arrow = ax.arrow(0,0,0,0 , head_width=0.0025, head_length=0.001, color='r', ec=None, label='Rover orientation')
@@ -340,19 +346,20 @@ def rover_sensor_movement_test():
     panel = SolarPanelArea(10,10,1000)
     
     time_step = 0.01
-    time_stop = 10
+    time_stop = 5
     time_arange = np.arange(0, time_stop, time_step)
 
     rover = Rover(panel, time_step)
-    rover.set_trajectory(0, 0.5)
+    speed_max = 0.02
+    rover.set_trajectory(speed_max, 0)
 
     l_speed_actual = []
     l_speed_enc = []
     r_speed_actual = []
     r_speed_enc = []
     
-    l_desired = np.full_like(time_arange, rover.l_desired_speed)
-    r_desired = np.full_like(time_arange, rover.r_desired_speed)
+    l_desired = []
+    r_desired = []
     
     x_position = []
     y_position = []
@@ -362,19 +369,25 @@ def rover_sensor_movement_test():
         rover.update_sensors()
     
     for t in time_arange:
-        rover.update_sensors()
-
-        rover.update_motors(use_sensors=True)
-        rover.update_position()
-        
+        # if t == int(t):
+        #     speed_max = -1*speed_max
+        #     rover.set_trajectory(speed_max, 0)
         x_position.append(rover.positional_information.position[0])
         y_position.append(rover.positional_information.position[1])
         
         l_speed_actual.append(rover.positional_information.l_speed)
         r_speed_actual.append(rover.positional_information.r_speed)
-
+        
+        l_desired.append(rover.l_desired_speed)
+        r_desired.append(rover.r_desired_speed)
         l_speed_enc.append(rover.estimated_pos.l_speed)
         r_speed_enc.append(rover.estimated_pos.r_speed)
+        rover.update_sensors()
+
+        rover.update_motors(use_sensors=True)
+        rover.update_position()
+        
+
         
     
 
@@ -442,7 +455,7 @@ def limit_switch_test():
     
     ax.add_patch(patches.Rectangle((0,0), area.width, area.height, linewidth=1, edgecolor='r', facecolor='none'))
     
-    rover.set_trajectory(0.1,0)
+    rover.set_trajectory(0.05,0)
     for t in range(N):
         rover.update_sensors()
         rover.update_motors(use_sensors=True)
@@ -450,7 +463,7 @@ def limit_switch_test():
         pos_array = np.array(rover.get_limit_switch_readout(type='pos')).reshape((8,1,2))
         status_array = np.array(rover.get_limit_switch_readout()).reshape(8,1)
         if not all(status_array.flatten()):
-            rover.set_trajectory(-0.1,0)
+            rover.set_trajectory(0,0)
 
 
 
@@ -569,7 +582,7 @@ def rotational_pid_test():
     fig.set_size_inches(16,9)
     # ax1.set_ylim(0,1.5)
     ax1.set_xlim(0,xs[-1])
-    runs = 1
+    runs = 20
     
     
     offset = []
@@ -602,13 +615,15 @@ def rotational_pid_test():
             
             desired_az.append(rover.desired_azimuth)
 
-        ax1.plot(xs, az_list, 'b', linewidth=min(20/runs,1))
-        ax1.plot(xs, estimated_az, 'r', linewidth=min(20/runs,1))
+        ax1.plot(xs, np.rad2deg(az_list), 'b', linewidth=min(20/runs,1))
+        ax1.plot(xs, np.rad2deg(estimated_az), 'r', linewidth=min(20/runs,1))
         
         offset.append(((az_list[-1] - desired_az[-1] + np.pi)%(2*np.pi) - np.pi)/turn_magnitude)
         
     # print(np.average(offset))
-    ax1.plot(xs, desired_az, 'k--')
+    ax1.plot(xs, np.rad2deg(desired_az), 'k--')
+    ax1.set_ylim(85,95)
+    
     
     # n = runs//10
     # p,x = np.histogram(offset, bins=n)
@@ -630,7 +645,7 @@ def linear_pid_test():
     xs = np.linspace(0,N*0.01,N)
     dt = 0.01
     
-    fig, (ax1, ax2, ax3) = plt.subplots(1,3)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1,4)
     fig.set_size_inches(16,9)
     ax1.set_xlim(0,xs[-1])
     runs = 1
@@ -652,19 +667,24 @@ def linear_pid_test():
         imu_vel_list = [0]
         imu_pos_list = [0]
         state_list = []
+        y_list = []
+        y_est_list = []
 
-        rover.set_desired_distance(1)
+        rover.set_desired_distance(0.1)
         for t in range(N):
-            if rover.motor_state:
-                rover.update_positional_trajectory()
+            # if rover.motor_state:
+            #     a, b = rover.update_positional_trajectory()
+            rover.update_positional_trajectory()
             rover.update_sensors()
 
             rover.make_decision()
             state_list.append(rover.motor_state)
             pos_list.append(rover.positional_information.position[0])
+            y_list.append(rover.positional_information.position[1])
             vel_list.append(rover.positional_information.linear_velocity)
             accel_list.append(rover.positional_information.linear_accel)
             est_pos_list.append(rover.estimated_pos.position[0])
+            y_est_list.append(rover.estimated_pos.position[1])
             est_vel_list.append(rover.estimated_pos.linear_velocity)
             imu_accel_list.append(rover.imu_info[0][0])
             imu_vel_list.append(imu_vel_list[-1] + imu_accel_list[-1]*dt)
@@ -689,19 +709,13 @@ def linear_pid_test():
         # ax3.plot(xs, state_list, 'g')
 
         ax3.plot(xs, imu_pos_list, 'r')
-
-
-    
+        ax4.plot(pos_list, y_list, 'k--')
+        ax4.set_xlim(0,0.2)
+        ax4.set_ylim(-0.1,0.1)
+        ax4.plot(est_pos_list, y_est_list, 'r')
     plt.show()
-
-    
     pass
     
-# def rover_imu_test():
-#     # dt = 0.01
-    
-
-#     pass
 def rot_ang():
 
     motor = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3, dt=0.001)
@@ -710,6 +724,139 @@ def rot_ang():
     x = motor.get_angular_acceleration()
     print(x)
 
+def state_tester():
+    dt = 0.01 
+    panel = SolarPanelArea(1,1,100)
+    
+    starting_position = np.array([0.5, 0.5])
+    starting_orientation = np.array([np.cos(np.pi/8), np.sin(np.pi/8)])
+    rover = Rover(panel, dt, starting_position, starting_orientation)
+    rover.estimated_pos.position = starting_position
+    rover.estimated_pos.orientation = starting_orientation
+    time = 1000
+    show_every = 10
+    
+    N = int(time // dt)
+    
+    #Fill buffer
+    for t in range(100):
+        rover.simulate()
+        # print(f"position: \t{rover.positional_information.position}\nradio_message: \t{rover.radio_message}\n")
+    
+
+    rover.set_radio_message(RadioMessage.STARTCLEANINGOK)
+    # for t in range(N):
+    #     rover.simulate()
+    #     # print(f"position: \t\t{rover.positional_information.position}\ndecision_state: \t{rover.decision_state}\n")
+    #     rover.get_limit_switch_readout(display=True, type='pos')
+    #     pass
+
+
+    # get the full limit switch readout from Rover
+    pos_array = rover.get_limit_switch_readout(type='pos')
+    status_array = rover.get_limit_switch_readout()
+    
+    center_xs = []
+    center_ys = []
+    est_center_xs = []
+    est_center_ys = []
+    pos_timeline = np.zeros([8,1,2])
+    status_timeline = np.full([8,1], True)
+    
+    
+    
+
+    # Initialize/setup plotting
+    fig, ax = plt.subplots(1,1)
+    fig.set_size_inches(16,9)
+    ax.set_aspect('equal')
+    ax.set(xlim=[-0.25,1.25],ylim=[-0.25,1.25])
+    
+    for i, pos in enumerate(pos_array):
+        pos_timeline[i,0] = pos
+        status_timeline[i,0] = status_array[i]
+
+    plots = list(ax.plot(*switch_pos[-1], 'bo', label='Limit Switch') for switch_pos in pos_timeline)
+    
+    center_pos, = ax.plot(starting_position[0], starting_position[1], 'go', label='Real Position')
+    estimated_pos, = ax.plot(starting_position[0], starting_position[1], 'ko', label='Estimated Position')
+    
+    center_path, = ax.plot([starting_position[0]], [starting_position[1]], 'g-')
+    estimated_path, = ax.plot([starting_position[0]], [starting_position[1]], 'k--')
+
+    ax.add_patch(patches.Rectangle((0,0), panel.width, panel.height, linewidth=1, edgecolor='r', facecolor='none'))
+    
+    # Search For Corner Step
+    for t in range(N):
+        rover.simulate()
+        pos_array = np.array(rover.get_limit_switch_readout(type='pos')).reshape((8,1,2))
+        status_array = np.array(rover.get_limit_switch_readout()).reshape(8,1)
+        
+        
+        center_xs.append(rover.positional_information.position[0])
+        center_ys.append(rover.positional_information.position[1])
+        
+        est_center_xs.append(rover.estimated_pos.position[0])
+        est_center_ys.append(rover.estimated_pos.position[1])
+        
+
+        pos_timeline = np.append(pos_timeline, pos_array, axis=1)
+        status_timeline = np.append(status_timeline, status_array, axis=1)
+        print(f"corner_state: \t{rover.search_for_corner_state}")
+        if rover.search_for_corner_state == SearchForCornerStates.DONE:
+            break
+    
+    # Outer Loop Step
+    for t in range(N):
+        rover.simulate()
+        pos_array = np.array(rover.get_limit_switch_readout(type='pos')).reshape((8,1,2))
+        status_array = np.array(rover.get_limit_switch_readout()).reshape(8,1)
+        
+        center_xs.append(rover.positional_information.position[0])
+        center_ys.append(rover.positional_information.position[1])
+        
+        est_center_xs.append(rover.estimated_pos.position[0])
+        est_center_ys.append(rover.estimated_pos.position[1])        
+
+        pos_timeline = np.append(pos_timeline, pos_array, axis=1)
+        status_timeline = np.append(status_timeline, status_array, axis=1)
+        print(f"outer_state: \t{rover.outer_loop_states}")
+        if rover.outer_loop_states == OuterLoopStates.DONE:
+            break          
+        
+    # Inner Loop Step
+    
+        
+    
+    def animate(i):
+        center_pos.set_data([center_xs[show_every*i]],[center_ys[show_every*i]])
+        estimated_pos.set_data([est_center_xs[show_every*i]],[est_center_ys[show_every*i]])
+
+        center_path.set_data(center_xs[:show_every*i],center_ys[:show_every*i])
+        estimated_path.set_data(est_center_xs[:show_every*i],est_center_ys[:show_every*i])
+        for switch, status, plot in zip(pos_timeline, status_timeline, plots):
+            x,y = switch[show_every*i]
+            state = status[show_every*i]
+            plot[0].set_data([x],[y])
+            if state:
+                plot[0].set_color('b')
+            else:
+                plot[0].set_color('r')
+                
+        return plots, center_pos, estimated_pos, center_path, estimated_path
+    
+    ax.legend()
+    ani = FuncAnimation(
+        fig,
+        animate,
+        interval=100,
+        blit=False,
+        frames=range(1,int(N/show_every)-show_every),
+        repeat_delay=100
+    )
+    
+    # ani.save("rover_mission.gif")
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -722,14 +869,16 @@ if __name__ == '__main__':
     # derivative_error_test()
     # imu_test()
 
-    # # rover_movement_test()
+    # rover_movement_test()
     # # rotary_encoder_test()
     # rover_sensor_movement_test()
     # panel_bounds_test()
     # limit_switch_test()
     # rotational_pid_test()
-    linear_pid_test()
+    # linear_pid_test()
     # rot_ang()
+    
+    state_tester()
     
 
     pass

@@ -31,7 +31,7 @@ class Rover:
         # Physical constants
         self.axle_length = 0.170 #170mm
         self.wheel_radius = 0.025 #25mm
-        self.top_speed = 1 # 1 m/s
+        self.top_speed = 0.04 # 4 cm/s 
         self.top_turn_rate = 1 # rad/s
 
         # Simulation constants
@@ -39,28 +39,28 @@ class Rover:
 
         # Sensor definitions
         self.imu = IMU(time_step=self.time_step, k_linear=230, k_angular=0.015)
-        self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.1)
-        self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.1)
+        self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.5)
+        self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.5)
         
         # Limit switches identified by last three chars: l/r for left/right, f/b for front/back, i/o for inboard/outboard
-        self.limit_switch_lfo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.105]))
-        self.limit_switch_lfi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.1]))
-        self.limit_switch_rfo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.105]))
-        self.limit_switch_rfi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.1]))
-        self.limit_switch_lbo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.105]))
-        self.limit_switch_lbi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.1]))
-        self.limit_switch_rbo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.105]))
-        self.limit_switch_rbi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.1]))
+        self.limit_switch_lfo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.105]))
+        self.limit_switch_lfi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,0.1]))
+        self.limit_switch_rfo = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.105]))
+        self.limit_switch_rfi = LimitSwitch(solar_panel_area, relative_pos=np.array([0.1,-0.1]))
+        self.limit_switch_lbo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.105]))
+        self.limit_switch_lbi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,0.1]))
+        self.limit_switch_rbo = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.105]))
+        self.limit_switch_rbi = LimitSwitch(solar_panel_area, relative_pos=np.array([-0.1,-0.1]))
         
-        self.track_motor_l = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3,  dt=time_step)
-        self.track_motor_r = DCMotorDiscrete(K=1.14, J=1.66E-4, L=10e-3, dt=time_step)
+        self.track_motor_l = DCMotorDiscrete(K=1.14, J=4.785E-4, L=10e-3, R=30,  dt=time_step)
+        self.track_motor_r = DCMotorDiscrete(K=1.14, J=4.785E-4, L=10e-3, R=30, dt=time_step)
         self.cleaning_motors = CleaningMotor()
 
-        self.track_pid_l = PIDController(Kp=0, Ki=5, Kd=0, dt=time_step)
-        self.track_pid_r = PIDController(Kp=0, Ki=5, Kd=0, dt=time_step)
-        
-        self.positional_pid = PIDController(Kp=0.15, dt=time_step)
-        self.orientation_pid = PIDController(Kp=0.95, Ki=0, Kd=0.2, dt=time_step)
+        self.track_pid_l = PIDController(Kp=0.05, Ki=0.5, Kd=0.05, Kff=3, dt=time_step, clamp_value=1)
+        self.track_pid_r = PIDController(Kp=0.05, Ki=0.5, Kd=0.05, Kff=3, dt=time_step, clamp_value=1)
+    
+        self.positional_pid = PIDController(Kp=0.25, Ki=0.05, Kd=0.0, dt=time_step)
+        self.orientation_pid = PIDController(Kp=0.8, Ki=0, Kd=0, dt=time_step)
         self.turn_compensation_factor = 1.08 # determined through trial and error 
 
         # Decision States
@@ -77,11 +77,20 @@ class Rover:
         
         self.positional_information.azimuth = self.get_azimuth()
         
-        self.desired_azimuth = self.positional_information.azimuth # Used to track to correct azimuthal angle in a rotation operation
+        self.desired_azimuth = None # Used to track to correct azimuthal angle in a rotation operation
         self.desired_distance = 0 # Used to go the correct distance forwards in a straight-line operation
 
         self.lockout_countdown = 0
         
+        
+        self.corner_locations = []
+    
+    def simulate(self):
+        self.update_sensors()
+        self.update_motors()        
+        self.update_position()
+        self.make_decision()
+    
     def set_desired_azimuth(self, desired_azimuth):
         """Tell the robot to move to a certain orientation"""
         self.desired_azimuth = desired_azimuth
@@ -121,12 +130,17 @@ class Rover:
             self.set_trajectory(0,0)
             return
 
-        desired_turn_rate = self.orientation_pid.calculate(self.desired_azimuth, ref.azimuth)
+        desired_turn_rate = self.orientation_pid.calculate(self.desired_azimuth, ref.azimuth, angular=True)
         self.set_trajectory(desired_speed, desired_turn_rate)
         return desired_speed, desired_turn_rate
         
-    def set_desired_distance(self, desired_distance):
+    def set_desired_distance(self, desired_distance, use_sensors=True):
+        if use_sensors: 
+            ref = self.estimated_pos
+        else:
+            ref = self.positional_information
         self.desired_distance = desired_distance
+        self.desired_azimuth = ref.azimuth
         pass
         
     def get_limit_switch_readout(self, display=False, type: Literal["state", "pos"] = "state"):
@@ -361,12 +375,12 @@ class Rover:
         
         self.estimated_pos.l_speed = l_enc_speed
         self.estimated_pos.r_speed = r_enc_speed
-        # _, self.estimated_pos.turn_rate = self.compute_trajectory()
+        self.estimated_pos.linear_velocity, self.estimated_pos.turn_rate = self.compute_trajectory()
         
 
         # IMU estimates
         self.imu_info = self.imu.get_imu_data(self.positional_information, body_axis=True)
-        self.estimated_pos.linear_accel = self.imu_info[0][0][0]
+        # self.estimated_pos.linear_accel = self.imu_info[0][0][0]
         self.estimated_pos.turn_rate = self.imu_info[1][2][0]
 
 
@@ -425,8 +439,8 @@ class Rover:
 
     def initialize_cleaning(self):
         """DECISION TREE LEVEL (2)"""
-        self.imu.reset_position()
-        self.cleaning_motors.start()
+        # self.imu.reset_position()
+        self.cleaning_motors.power(True)
         self.decision_state = DecisionStates.CLEANOUTERLOOP
 
     def clean_outer_loop(self):
@@ -457,15 +471,15 @@ class Rover:
 
     def make_decision(self):
         """DECISION TREE HEAD (1)"""
+        if self.radio_message == RadioMessage.NOMESSAGE:
+            return
         if self.motor_state == MotorStates.MOTOR_DIS:
             self.lockout_countdown = self.lockout_countdown - 1
             if self.lockout_countdown <= 0:
-                self.motor_state = MotorStates.MOTOR_EN        
-        if self.radio_message == RadioMessage.NOMESSAGE:
-            return
-        elif self.radio_message == RadioMessage.STARTCLEANINGOK:
+                self.motor_state = MotorStates.MOTOR_EN
+            return        
+        elif self.radio_message == RadioMessage.STARTCLEANINGOK and self.decision_state == DecisionStates.IDLE:
             self.decision_state = DecisionStates.SEARCHFORCORNER
-
 
         # check state tied to countdown
         # stopmotor()
@@ -488,16 +502,17 @@ class Rover:
         """CONCRETE ACTION"""
         """Move backward with gradually increasing speed until any back limit switch is triggered."""
         
-        max_speed = 0.25 * self.top_speed  # 25% of max speed
+        max_speed = 0.75 * self.top_speed  # 75% of max speed
 
+        # UNUSED -- Handled by PID functions, don't try to apply external acceleration-like inputs to it
         # Gradually ramp up speed
-        if self.l_desired_speed > -max_speed:
-            self.l_desired_speed -= 0.01  # Gradual increase in reverse
-        if self.r_desired_speed > -max_speed:
-            self.r_desired_speed -= 0.01  
+        # if self.l_desired_speed > -max_speed:
+        #     self.l_desired_speed -= 0.01  # Gradual increase in reverse
+        # if self.r_desired_speed > -max_speed:
+        #     self.r_desired_speed -= 0.01  
 
         # Update trajectory to move backward
-        self.set_trajectory(desired_speed=-self.l_desired_speed, desired_turn_rate=0)
+        self.set_trajectory(desired_speed=-1*max_speed, desired_turn_rate=0)
 
         # Check back limit switches
         back_switches = [
@@ -507,8 +522,8 @@ class Rover:
             self.limit_switch_rbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
         ]
 
-        # Stop immediately if any back limit switch is triggered
-        if any(back_switches):
+        # Stop immediately if any back limit switch is off the panel
+        if not all(back_switches):
             self.stop_motors()
             self.search_for_corner_state = SearchForCornerStates.ALIGNWITHEDGE
 
@@ -518,58 +533,63 @@ class Rover:
         """Align with the panel edge using back limit switches and small adjustments."""
 
         # Read back limit switch states
-        left_back_pressed = self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
-        right_back_pressed = self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
-
-        # If both back limit switches are pressed, we are aligned
-        if left_back_pressed and right_back_pressed:
+        left_back_off = not self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        right_back_off = not self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        # If both back limit switches are off, we are aligned
+        if left_back_off and right_back_off:
+            print("VALID")
             self.search_for_corner_state = SearchForCornerStates.TURNRIGHT
+            self.stop_motors()            
             return
         
-        # If only the right back switch is pressed, rotate counterclockwise (CCW)
-        if right_back_pressed:
+        # If only the left back switch is off, rotate counterclockwise (CCW)
+        if left_back_off:
             self.set_trajectory(desired_speed=0.01, desired_turn_rate=-0.1)  # Small forward + left turn
 
-        # If only the left back switch is pressed, rotate clockwise (CW)
-        elif left_back_pressed:
+        # If only the right back switch is off, rotate clockwise (CW)
+        elif right_back_off:
             self.set_trajectory(desired_speed=0.01, desired_turn_rate=0.1)  # Small forward + right turn
+        
+        else:
+            self.set_trajectory(desired_speed=-0.01,desired_turn_rate=0)
 
 
     def turn_right(self, deg=90):
         """CONCRETE ACTION"""
         """Rotate the rover clockwise (right) by a given degree amount."""
-
         # Convert degrees to radians
-        target_azimuth = (self.get_azimuth() - np.radians(deg)) % (2 * np.pi)
-
-        # Set the desired azimuth
-        self.set_desired_azimuth(target_azimuth)
+        if self.desired_azimuth == None:
+            target_azimuth = (self.estimated_pos.azimuth - np.radians(deg)) % (2 * np.pi)
+            self.set_desired_azimuth(target_azimuth)
 
         # Update the turning trajectory
         self.update_turning_trajectory(use_sensors=True)
 
         # Stop when the turn is completed
-        if abs(self.get_azimuth() - target_azimuth) < 0.05:  # Small error threshold
+        if abs(self.estimated_pos.azimuth - self.desired_azimuth) < 0.05:  # Small error threshold
+            self.desired_azimuth = None
             self.stop_motors()
             self.search_for_corner_state = SearchForCornerStates.ADJUSTBACKANDFORTH
 
     def turn_left(self,deg):
         """CONCRETE ACTION"""
-        """Rotate the rover counterclockwise (left) by a given degree amount."""
-
+        """Rotate the rover clockwise (right) by a given degree amount."""
         # Convert degrees to radians
-        target_azimuth = (self.get_azimuth() + np.radians(deg)) % (2 * np.pi)
-
-        # Set the desired azimuth
-        self.set_desired_azimuth(target_azimuth)
+        if self.desired_azimuth == None:
+            target_azimuth = (self.estimated_pos.azimuth + np.radians(deg)) % (2 * np.pi)
+            self.set_desired_azimuth(target_azimuth)
 
         # Update the turning trajectory
         self.update_turning_trajectory(use_sensors=True)
 
         # Stop when the turn is completed
-        if abs(self.get_azimuth() - target_azimuth) < 0.05:
+        if abs(self.estimated_pos.azimuth - self.desired_azimuth) < 0.05:  # Small error threshold
+            self.desired_azimuth = None
             self.stop_motors()
-            self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILCORNER
+            if self.outer_loop_states == OuterLoopStates.TURNLEFT:
+                self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
+            elif self.inner_loop_states == InnerLoopStates.TURNLEFT:
+                self.inner_loop_states = InnerLoopStates.FOLLOWPATH
 
 
     def adjust_back_and_forth(self):
@@ -577,20 +597,35 @@ class Rover:
         """Make small adjustments until back limit switches detect the edge correctly."""
 
         # Read limit switch states
-        back_left = [self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth),
-                    self.limit_switch_lbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)]
-        back_right = [self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth),
-                    self.limit_switch_rbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)]
-
-        # If all switches detect the panel, move slightly forward
-        if all(back_left) and all(back_right):
-            self.set_trajectory(desired_speed=0.01, desired_turn_rate=0)
-        # If no switches detect the panel, move slightly backward
-        elif not any(back_left) and not any(back_right):
-            self.set_trajectory(desired_speed=-0.01, desired_turn_rate=0)
+        rfo = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        rfi = self.limit_switch_rfi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        rbo = self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        rbi = self.limit_switch_rbi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        
+        if not (rbo or rbi):
+            # if both back switches are off
+            if not (rfo or rfi):
+                # all switches are off, forward and CCW
+                self.set_trajectory(0.02,0.1)
+            else: 
+                # One or both front switches are on, forward and CW
+                self.set_trajectory(0.02,-0.1)
+                
+        elif (rbo and rbi):
+            # if both back switches are on, go back and CCW no matter what
+            self.set_trajectory(-0.02,0.1)
+        
         else:
-            self.stop_motors()
-            self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILCORNER
+            # if back switch one is off and one is on:
+            if (rfo and rfi):
+                # if both front switches are on, reverse straight back
+                self.set_trajectory(-0.02,0)
+            if not (rfo or rfi):
+                # if neither front switches are on, reverse straight back
+                self.set_trajectory(-0.02,0)
+            else:        
+                self.stop_motors()
+                self.search_for_corner_state = SearchForCornerStates.MOVEBACKWARDSUNTILCORNER
 
 
     def move_backward_until_corner(self):
@@ -600,34 +635,46 @@ class Rover:
         self.set_trajectory(desired_speed=-0.05, desired_turn_rate=0)
 
         # Check for corner condition: both left and right back outer switches pressed
-        if self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth) and \
-        self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth):
+        if not self.limit_switch_lbo.is_pressed(self.positional_information.position, self.positional_information.azimuth) and \
+        not self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth):
             self.stop_motors()
+            self.corner_locations.append(self.estimated_pos.position)
             self.search_for_corner_state = SearchForCornerStates.DONE
 
     def follow_edge(self):
         """CONCRETE ACTION"""
         """Follow the edge of the solar panel while maintaining alignment."""
 
-        speed = 0.05  # Move forward slowly
+        speed = 0.03  # Move forward slowly
 
-        # Read left and right limit switches
-        left_on_edge = self.limit_switch_lfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
-        right_on_edge = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        # Read limit switch states
+        rfo = self.limit_switch_rfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        rfi = self.limit_switch_rfi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        lfo = self.limit_switch_lfo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
+        lfi = self.limit_switch_lfi.is_pressed(self.positional_information.position, self.positional_information.azimuth)
 
+        # If the left front switches went off, we reached a corner
+        if not (lfo and lfi):
+            self.stop_motors()
+            if len(self.corner_locations) == 4:
+                self.outer_loop_states = OuterLoopStates.DONE
+            else:
+                self.corner_locations.append(self.estimated_pos.position)
+                self.outer_loop_states = OuterLoopStates.TURNLEFT
+            return
+        
         # Adjust turn rate based on limit switch readings
-        if left_on_edge and right_on_edge:
-            turn_rate = 0  # Stay straight
-        elif left_on_edge:  
-            turn_rate = -0.05  # Slight right adjustment
-        elif right_on_edge:  
-            turn_rate = 0.05  # Slight left adjustment
+        if not rfi:
+            # inner limit switch went off, adjust slight CCW
+            self.set_trajectory(speed/2,0.1)
+        elif rfo:
+            # outer limit switch went on, adjust slight CW
+            self.set_trajectory(speed/2,-0.1)
         else:
-            turn_rate = 0  # Stop if no edge is detected
-
-        self.set_trajectory(desired_speed=speed, desired_turn_rate=turn_rate)
-
-
+            self.set_trajectory(speed, 0)
+        
+        
+        
     def follow_inner_path(self):
         """CONCRETE ACTION"""
         """Follow the inner cleaning path using IMU for alignment."""
@@ -645,6 +692,7 @@ class Rover:
 
     def stop_motors(self): 
         """CONCRETE ACTION"""
+        print("STOPPED")
         self.track_motor_l.update(0)
         self.track_motor_r.update(0)
         self.track_pid_l.reset()
