@@ -50,7 +50,9 @@ class SearchForCornerStates(IntEnum):
 class OuterLoopStates(IntEnum):
     FOLLOWEDGE = 1
     TURNLEFT = 2
-    DONE = 3
+    REVERSE = 3
+    DONE = 4
+    
 class InnerLoopStates(IntEnum):
     FOLLOWPATH = 1
     TURNLEFT = 2
@@ -69,6 +71,7 @@ class RadioMessage(IntEnum):
     STOPCLEANING = 2
     CLEANINGDONETAKEMEAWAY = 3
     NOMESSAGE = 4
+    ERROR = 5
 
 class MotorStates():
     MOTOR_EN = 1

@@ -729,12 +729,12 @@ def state_tester():
     panel = SolarPanelArea(1,1,100)
     
     starting_position = np.array([0.5, 0.5])
-    starting_orientation = np.array([np.cos(np.pi/8), np.sin(np.pi/8)])
+    starting_orientation = np.array([np.cos(0), np.sin(0)])
     rover = Rover(panel, dt, starting_position, starting_orientation)
     rover.estimated_pos.position = starting_position
     rover.estimated_pos.orientation = starting_orientation
-    time = 1000
-    show_every = 10
+    time = 100000
+    show_every = 50
     
     N = int(time // dt)
     
@@ -825,7 +825,23 @@ def state_tester():
             break          
         
     # Inner Loop Step
-    
+    for t in range(N):
+        rover.simulate()
+        pos_array = np.array(rover.get_limit_switch_readout(type='pos')).reshape((8,1,2))
+        status_array = np.array(rover.get_limit_switch_readout()).reshape(8,1)
+        
+        center_xs.append(rover.positional_information.position[0])
+        center_ys.append(rover.positional_information.position[1])
+        
+        est_center_xs.append(rover.estimated_pos.position[0])
+        est_center_ys.append(rover.estimated_pos.position[1])        
+
+        pos_timeline = np.append(pos_timeline, pos_array, axis=1)
+        status_timeline = np.append(status_timeline, status_array, axis=1)
+        print(f"inner_state: \t{rover.inner_loop_states}\nnodes: {rover.panel_width_nodes, rover.panel_height_nodes}")
+        if rover.inner_loop_states == InnerLoopStates.DONE:
+            break          
+            
         
     
     def animate(i):
@@ -851,7 +867,7 @@ def state_tester():
         animate,
         interval=100,
         blit=False,
-        frames=range(1,int(N/show_every)-show_every),
+        frames=range(1,int(len(center_xs))),
         repeat_delay=100
     )
     

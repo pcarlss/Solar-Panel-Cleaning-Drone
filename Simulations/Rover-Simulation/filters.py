@@ -19,12 +19,11 @@ class KalmanFilter:
         S = np.dot(np.dot(self.H, self.P), self.H.T) + self.R
         K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(S))      
         # Update the state estimate and covariance matrix
-        y = z - np.dot(self.H, self.x)  
+        y = z - np.dot(self.H, self.x)
         self.x = self.x + np.dot(K, y)
         I = np.eye(self.P.shape[0])
         self.P = np.dot(np.dot(I - np.dot(K, self.H), self.P), (I - np.dot(K, self.H)).T) + np.dot(np.dot(K, self.R), K.T)
         return self.x
-
 
 if __name__ == "__main__":
     # Example usage

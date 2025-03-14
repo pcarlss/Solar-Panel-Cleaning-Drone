@@ -3,6 +3,7 @@ from common import DecisionStates, InnerLoopStates, OuterLoopStates, RadioMessag
 from dataclasses import dataclass
 from typing import List, Literal
 from scipy.ndimage import rotate
+import time
 import numpy as np
 
 
@@ -78,12 +79,17 @@ class Rover:
         self.positional_information.azimuth = self.get_azimuth()
         
         self.desired_azimuth = None # Used to track to correct azimuthal angle in a rotation operation
-        self.desired_distance = 0 # Used to go the correct distance forwards in a straight-line operation
+        self.desired_distance = None # Used to go the correct distance forwards in a straight-line operation
 
         self.lockout_countdown = 0
         
-        
-        self.corner_locations = []
+        # Panel Information
+        self.corner_locations = [] # X,Y location of all corners
+        self.panel_height = 0 # Panel height measured
+        self.panel_width = 0 # Panel width measured
+        self.panel_height_nodes = 0 # Number of panel height nodes
+        self.panel_width_nodes = 0 # Number of panel width nodes
+        self.cleaning_axis = "height" # Which direction (height/width) the rover is currently cleaning
     
     def simulate(self):
         self.update_sensors()
@@ -94,7 +100,6 @@ class Rover:
     def set_desired_azimuth(self, desired_azimuth):
         """Tell the robot to move to a certain orientation"""
         self.desired_azimuth = desired_azimuth
-        pass
     
     def update_turning_trajectory(self, use_sensors=True):
         if use_sensors:
@@ -115,7 +120,8 @@ class Rover:
         
         return desired_speed, desired_turn_rate
     
-    def update_positional_trajectory(self, use_sensors=True):
+    def update_positional_trajectory(self, use_sensors=True,direction=1):
+
         if use_sensors:
             ref = self.estimated_pos
         else:
@@ -124,9 +130,7 @@ class Rover:
         self.desired_distance = self.desired_distance - ref.linear_velocity * self.time_step
         desired_speed = self.positional_pid.calculate(0, -1*self.desired_distance)
 
-        if self.desired_distance < 0:
-            self.desired_distance = 0
-            self.stop_motors()
+        if direction*self.desired_distance < 0:
             self.set_trajectory(0,0)
             return
 
@@ -450,13 +454,25 @@ class Rover:
                 self.follow_edge()
             case OuterLoopStates.TURNLEFT:
                 self.turn_left(90)
+            case OuterLoopStates.REVERSE:
+                self.outer_loop_reverse()
             case OuterLoopStates.DONE:
                 self.decision_state = DecisionStates.CLEANINNERLOOPS
+    
+    def outer_loop_reverse(self):
+        if self.desired_distance == None:
+            self.set_desired_distance(-1*self.axle_length)
+            self.set_desired_azimuth(self.estimated_pos.azimuth)
+        self.update_positional_trajectory(direction=-1)
+        if self.desired_distance >= 0:
+            self.desired_distance = None
+            self.desired_azimuth = None
+            self.outer_loop_states = OuterLoopStates.TURNLEFT
 
     def clean_inner_loops(self):
         """DECISION TREE LEVEL (2)"""
         match self.inner_loop_states:
-            case InnerLoopStates.FOLLOWEDGE:
+            case InnerLoopStates.FOLLOWPATH:
                 self.follow_inner_path()
             case InnerLoopStates.TURNLEFT:
                 self.turn_left(90)
@@ -574,6 +590,7 @@ class Rover:
     def turn_left(self,deg):
         """CONCRETE ACTION"""
         """Rotate the rover clockwise (right) by a given degree amount."""
+        
         # Convert degrees to radians
         if self.desired_azimuth == None:
             target_azimuth = (self.estimated_pos.azimuth + np.radians(deg)) % (2 * np.pi)
@@ -587,8 +604,20 @@ class Rover:
             self.desired_azimuth = None
             self.stop_motors()
             if self.outer_loop_states == OuterLoopStates.TURNLEFT:
+                
+                # This is the last turn, after the reversal
+                if len(self.corner_locations) == 4:
+                    self.outer_loop_states = OuterLoopStates.DONE
+                    return
                 self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
             elif self.inner_loop_states == InnerLoopStates.TURNLEFT:
+                # Decrease the number of nodes in the current axis by 1, and flip the cleaning axis
+                if self.cleaning_axis == "height":
+                    self.panel_height_nodes -=1
+                    self.cleaning_axis = "width"
+                else:
+                    self.panel_width_nodes -=1
+                    self.cleaning_axis = "height"                
                 self.inner_loop_states = InnerLoopStates.FOLLOWPATH
 
 
@@ -640,7 +669,15 @@ class Rover:
             self.stop_motors()
             self.corner_locations.append(self.estimated_pos.position)
             self.search_for_corner_state = SearchForCornerStates.DONE
-
+            
+    def map_inner_path(self):
+        # Maps the inner path using collected data
+        
+        self.panel_height = np.average([np.linalg.norm(self.corner_locations[0] - self.corner_locations[1]), np.linalg.norm(self.corner_locations[2] - self.corner_locations[3])])
+        self.panel_width = np.average([np.linalg.norm(self.corner_locations[1] - self.corner_locations[2]), np.linalg.norm(self.corner_locations[3] - self.corner_locations[0])])
+        self.panel_height_nodes = int(self.panel_height//self.axle_length) - 1 # -2 but round up, so turns out to -1
+        self.panel_width_nodes = int(self.panel_width//self.axle_length) - 1
+        
     def follow_edge(self):
         """CONCRETE ACTION"""
         """Follow the edge of the solar panel while maintaining alignment."""
@@ -656,8 +693,11 @@ class Rover:
         # If the left front switches went off, we reached a corner
         if not (lfo and lfi):
             self.stop_motors()
+            # If this is the last corner
             if len(self.corner_locations) == 4:
-                self.outer_loop_states = OuterLoopStates.DONE
+                # Compute the number of inner nodes
+                self.map_inner_path()
+                self.outer_loop_states = OuterLoopStates.REVERSE # Need to reverse slightly
             else:
                 self.corner_locations.append(self.estimated_pos.position)
                 self.outer_loop_states = OuterLoopStates.TURNLEFT
@@ -678,16 +718,37 @@ class Rover:
     def follow_inner_path(self):
         """CONCRETE ACTION"""
         """Follow the inner cleaning path using IMU for alignment."""
+        # Set the desired distance to travel based on the height and width of the panel
         
-        speed = 0.05  # Move forward slowly
+        if not all(self.get_limit_switch_readout()):
+            self.stop_motors()
+            self.radio_message = RadioMessage.ERROR
+        
+        if self.desired_distance == None:
+            if self.cleaning_axis == "height":
+                distance = self.panel_height_nodes*self.axle_length
+            elif self.cleaning_axis == "width":
+                distance = self.panel_width_nodes*self.axle_length
+            if distance == 0:
+                self.inner_loop_states = InnerLoopStates.DONE
+                self.stop_motors()
+                return
+            self.set_desired_distance(distance)
+            self.set_desired_azimuth(self.estimated_pos.azimuth)
+        self.update_positional_trajectory()
+        
+        if self.desired_distance <=0:
+            self.desired_distance = None
+            self.desired_azimuth = None
+            self.stop_motors()
+            self.inner_loop_states = InnerLoopStates.TURNLEFT
+        
+        
+        
+            
+            
+        
 
-        # Compute heading correction using IMU
-        heading_error = self.orientation_pid.calculate(self.desired_azimuth, self.get_azimuth())
-
-        # Apply correction to turn rate
-        turn_rate = heading_error * 0.1  
-
-        self.set_trajectory(desired_speed=speed, desired_turn_rate=turn_rate)
 
 
     def stop_motors(self): 
