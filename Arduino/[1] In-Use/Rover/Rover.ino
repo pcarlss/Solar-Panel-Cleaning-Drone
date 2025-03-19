@@ -2,34 +2,33 @@
 #include <PID_v1.h>
 
 // Define motor pins
-#define MOTOR_L_PWM 5
-#define MOTOR_L_IN1 4
-#define MOTOR_L_IN2 3
+#define MOTOR_L_PWM 9    // D9 - Left motor PWM
+#define MOTOR_L_IN1 8    // D8 - Left motor direction 1
+#define MOTOR_L_IN2 7    // D7 - Left motor direction 2
 
-#define MOTOR_R_PWM 6
-#define MOTOR_R_IN1 7
-#define MOTOR_R_IN2 8
+#define MOTOR_R_PWM 10   // D10 - Right motor PWM
+#define MOTOR_R_IN1 11   // D11 - Right motor direction 1
+#define MOTOR_R_IN2 12   // D12 - Right motor direction 2
 
 // Define cleaning motor pin
-#define CLEANING_MOTOR_ENABLE 8
-// Define limit switch pins
-#define LIMIT_SWITCH_COUNT 8
-#define LIMIT_SWITCH_PIN_SELECTOR_0 0
-#define LIMIT_SWITCH_PIN_SELECTOR_1 1
-#define LIMIT_SWITCH_PIN_SELECTOR_2 2
-#define LIMIT_SWITCH_PIN_OUTPUT 3
+#define CLEANING_MOTOR_ENABLE 13  // D13 - Cleaning motor enable
 
-// IMU (Placeholder for actual IMU library)
-#define IMU_SDA A4
-#define IMU_SCL A5
-#define IMU_K_LINEAR 230    // Linear error model constant
-#define IMU_K_ANGULAR 0.015 // Angular error model constant
+// Define limit switch pins (CD4051B multiplexer)
+#define LIMIT_SWITCH_COUNT 8
+#define LIMIT_SWITCH_PIN_SELECTOR_0 2  // D2 - Multiplexer address bit 0
+#define LIMIT_SWITCH_PIN_SELECTOR_1 3  // D3 - Multiplexer address bit 1
+#define LIMIT_SWITCH_PIN_SELECTOR_2 4  // D4 - Multiplexer address bit 2
+#define LIMIT_SWITCH_PIN_OUTPUT 5      // D5 - Multiplexer output
+
+// IMU (ICM-20948) I2C pins
+#define IMU_SDA A4  // A4 - IMU I2C data
+#define IMU_SCL A5  // A5 - IMU I2C clock
 
 // Rotary Encoders
-#define ENCODER_L_A 18
-#define ENCODER_L_B 19
-#define ENCODER_R_A 20
-#define ENCODER_R_B 21
+#define ENCODER_L_A 2    // D2 - Left encoder channel A
+#define ENCODER_L_B 3    // D3 - Left encoder channel B
+#define ENCODER_R_A 4    // D4 - Right encoder channel A
+#define ENCODER_R_B 5    // D5 - Right encoder channel B
 
 volatile long leftEncoderCount = 0;
 volatile long rightEncoderCount = 0;
