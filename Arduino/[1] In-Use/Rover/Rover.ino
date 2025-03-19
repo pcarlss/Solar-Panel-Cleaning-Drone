@@ -80,7 +80,7 @@ enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEA
 enum SearchForCornerStates { MOVEBACKWARDSUNTILEDGE, ALIGNWITHEDGE, TURNRIGHT, ADJUSTBACKANDFORTH, MOVEBACKWARDSUNTILCORNER, SEARCHDONE };
 enum OuterLoopStates { FOLLOWEDGE, TURNLEFT, OUTERDONE };
 enum InnerLoopStates { FOLLOWINNERPATH, INNERDONE };
-enum RadioMessage { NOMESSAGE, STARTCLEANINGOK, CLEANINGDONETAKEMEAWAY };
+enum RadioMessage { NOMESSAGE, STARTCLEANINGOK, CLEANINGDONETAKEMEAWAY, ERROR };
 
 // State variables
 DecisionStates decisionState = IDLE;
@@ -139,11 +139,19 @@ LimitSwitchConfig limitSwitchConfigs[LIMIT_SWITCH_COUNT] = {
     {{-0.1, -0.1}, false}   // RBI
 };
 
+const float MIN_ANGLE = 0.1;  // Minimum angle change for velocity calculation
+const float ZERO_TIME = 0.5;  // Time in seconds before zeroing velocity
+volatile float timeBetweenL = 0;
+volatile float timeBetweenR = 0;
+volatile long prevStepL = 0;
+volatile long prevStepR = 0;
+volatile float discretePosL = 0;
+volatile float discretePosR = 0;
+volatile unsigned long sinceLastChangeL = 0;
+volatile unsigned long sinceLastChangeR = 0;
+
 // Function prototypes
 void updateData();
-float getVelocityFromEncoder(long currentEncoder, long previousEncoder, unsigned long currentTime);
-void getVelocityIMU();
-void getPositionIMU();
 void updateLimitSwitches();
 
 void encoderISR_L();
@@ -173,6 +181,36 @@ void whenDone();
 
 void getIMUData();
 void getLimitSwitchPositions();
+
+// Add these helper functions before updatePosition
+float computeLinearVelocity(float l_speed, float r_speed) {
+    return (l_speed + r_speed) * WHEEL_RADIUS / 2;
+}
+
+float computeTurnRate(float l_speed, float r_speed) {
+    return (r_speed - l_speed) * WHEEL_RADIUS / AXLE_LENGTH;
+}
+
+float computeLinearAcceleration(float l_accel, float r_accel) {
+    return (l_accel + r_accel) * WHEEL_RADIUS / 2;
+}
+
+float computeTurnAcceleration(float l_accel, float r_accel) {
+    return (l_accel - r_accel) * WHEEL_RADIUS / 2;
+}
+
+void computeTravel(float linear_velocity, float turn_rate, float deltaTime) {
+    // Update position using velocity
+    currentPosition.position[0] += linear_velocity * cos(currentPosition.azimuth) * deltaTime;
+    currentPosition.position[1] += linear_velocity * sin(currentPosition.azimuth) * deltaTime;
+    
+    // Update orientation using turn rate
+    currentPosition.azimuth += turn_rate * deltaTime;
+    
+    // Update orientation unit vector
+    currentPosition.orientation[0] = cos(currentPosition.azimuth);
+    currentPosition.orientation[1] = sin(currentPosition.azimuth);
+}
 
 void setup() {
     Serial.begin(115200);
@@ -246,10 +284,6 @@ void updateData() {
     Serial.print(", Right Velocity: ");
     Serial.println(rightEncoderVelocity);
 
-    // Get IMU data (acceleration and velocity)
-    getVelocityIMU();
-    getPositionIMU();
-    
     // Debug print sensor data
     Serial.print("Encoders: L=");
     Serial.print(sensorData.leftEncoder);
@@ -263,32 +297,6 @@ void updateData() {
     Serial.print(sensorData.imuVelocity);
     Serial.print(", IMU Position: ");
     Serial.println(sensorData.imuPosition);
-}
-
-// Method to calculate velocity based on encoder counts (using time delta)
-float getVelocityFromEncoder(long currentEncoder, long previousEncoder, unsigned long currentTime) {
-    float deltaEncoder = currentEncoder - previousEncoder;
-    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
-    lastTime = currentTime;  // Update last time for the next calculation
-    float velocity = deltaEncoder / deltaTime;  // Encoder ticks per second
-    return velocity;
-}
-
-// Method to compute velocity from IMU (integrating acceleration over time)
-void getVelocityIMU() {
-    unsigned long currentTime = millis();
-    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
-    float accelX = sensorData.accelX;  // Assume sensorData.accelX is read from IMU
-    sensorData.imuVelocity += accelX * deltaTime;  // Integrate acceleration to get velocity
-    lastTime = currentTime;  // Update last time
-}
-
-// Method to compute position from IMU (integrating velocity over time)
-void getPositionIMU() {
-    unsigned long currentTime = millis();
-    float deltaTime = (currentTime - lastTime) / 1000.0;  // Time in seconds
-    sensorData.imuPosition += sensorData.imuVelocity * deltaTime;  // Integrate velocity to get position
-    lastTime = currentTime;  // Update last time
 }
 
 // Function to get IMU data
@@ -356,34 +364,92 @@ void getLimitSwitchPositions() {
 //add aidans encoder velocity processing
 void encoderISR_L() {
     unsigned long currentTime = millis();
-    
-    // Calculate delta time in seconds
     float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
     
     // Calculate the change in encoder count for the left encoder
     long deltaEncoder = leftEncoderCount - previousLeftEncoderCount;
-
-    // Compute velocity (change in encoder count divided by time delta)
-    leftEncoderVelocity = deltaEncoder / deltaTime;
-
-    // Update previous encoder count and time for next calculation
+    float step = deltaEncoder / MIN_ANGLE;
+    
+    // Handle immediate reversal (first reading)
+    if (prevStepL == 0) {
+        prevStepL = step;
+        discretePosL += step * MIN_ANGLE;
+        return;
+    }
+    
+    // Handle zero-crossing
+    if ((prevStepL != 0) && (prevStepL == -step)) {
+        discretePosL += step * MIN_ANGLE;
+        leftEncoderVelocity = 0;
+        timeBetweenL = 0;
+        prevStepL = step;
+        sinceLastChangeL = 0;
+        return;
+    }
+    
+    // Handle complete step
+    if (step != 0) {
+        discretePosL += step * MIN_ANGLE;
+        leftEncoderVelocity = step * MIN_ANGLE / timeBetweenL;
+        timeBetweenL = 0;
+        prevStepL = step;
+        sinceLastChangeL = 0;
+    }
+    
+    // Zero velocity timeout
+    if (timeBetweenL > ZERO_TIME) {
+        leftEncoderVelocity = 0;
+        timeBetweenL = ZERO_TIME;
+    }
+    
+    timeBetweenL += deltaTime;
+    sinceLastChangeL++;
     previousLeftEncoderCount = leftEncoderCount;
     previousEncoderTime = currentTime;
 }
 
 void encoderISR_R() {
     unsigned long currentTime = millis();
-
-    // Calculate delta time in seconds
     float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
     
-    // Calculate the change in encoder count for the right encoder
+    // Calculate position change
     long deltaEncoder = rightEncoderCount - previousRightEncoderCount;
-
-    // Compute velocity (change in encoder count divided by time delta)
-    rightEncoderVelocity = deltaEncoder / deltaTime;
-
-    // Update previous encoder count and time for next calculation
+    float step = deltaEncoder / MIN_ANGLE;
+    
+    // Handle immediate reversal (first reading)
+    if (prevStepR == 0) {
+        prevStepR = step;
+        discretePosR += step * MIN_ANGLE;
+        return;
+    }
+    
+    // Handle zero-crossing
+    if ((prevStepR != 0) && (prevStepR == -step)) {
+        discretePosR += step * MIN_ANGLE;
+        rightEncoderVelocity = 0;
+        timeBetweenR = 0;
+        prevStepR = step;
+        sinceLastChangeR = 0;
+        return;
+    }
+    
+    // Handle complete step
+    if (step != 0) {
+        discretePosR += step * MIN_ANGLE;
+        rightEncoderVelocity = step * MIN_ANGLE / timeBetweenR;
+        timeBetweenR = 0;
+        prevStepR = step;
+        sinceLastChangeR = 0;
+    }
+    
+    // Zero velocity timeout
+    if (timeBetweenR > ZERO_TIME) {
+        rightEncoderVelocity = 0;
+        timeBetweenR = ZERO_TIME;
+    }
+    
+    timeBetweenR += deltaTime;
+    sinceLastChangeR++;
     previousRightEncoderCount = rightEncoderCount;
     previousEncoderTime = currentTime;
 }
@@ -393,22 +459,34 @@ void updatePosition() {
     unsigned long currentTime = millis();
     float deltaTime = (currentTime - lastTime) / 1000.0; // Convert to seconds
     
-    // Update linear velocity from encoders
-    float leftVelocity = leftEncoderVelocity * WHEEL_RADIUS;
-    float rightVelocity = rightEncoderVelocity * WHEEL_RADIUS;
+    // Get track speeds from encoders
+    float l_speed = leftEncoderVelocity;
+    float r_speed = rightEncoderVelocity;
     
-    // Calculate linear velocity and turn rate
-    currentPosition.linear_velocity = (leftVelocity + rightVelocity) / 2;
-    currentPosition.turn_rate = (rightVelocity - leftVelocity) / AXLE_LENGTH;
+    // Store speeds in position information
+    currentPosition.l_speed = l_speed;
+    currentPosition.r_speed = r_speed;
     
-    // Update position using velocity
-    currentPosition.position[0] += currentPosition.linear_velocity * cos(currentPosition.azimuth) * deltaTime;
-    currentPosition.position[1] += currentPosition.linear_velocity * sin(currentPosition.azimuth) * deltaTime;
+    // Calculate accelerations (using velocity changes)
+    float l_accel = (l_speed - currentPosition.l_speed) / deltaTime;
+    float r_accel = (r_speed - currentPosition.r_speed) / deltaTime;
     
-    // Update orientation using turn rate
-    currentPosition.azimuth += currentPosition.turn_rate * deltaTime;
-    currentPosition.orientation[0] = cos(currentPosition.azimuth);
-    currentPosition.orientation[1] = sin(currentPosition.azimuth);
+    // Compute center of mass velocities and turn rates
+    float linear_velocity = computeLinearVelocity(l_speed, r_speed);
+    float turn_rate = computeTurnRate(l_speed, r_speed);
+    
+    // Compute accelerations
+    float linear_accel = computeLinearAcceleration(l_accel, r_accel);
+    float turn_accel = computeTurnAcceleration(l_accel, r_accel);
+    
+    // Update position information
+    currentPosition.linear_accel = linear_accel;
+    currentPosition.linear_velocity = linear_velocity;
+    currentPosition.turn_rate = turn_rate;
+    currentPosition.turn_accel = turn_accel;
+    
+    // Compute full travel
+    computeTravel(linear_velocity, turn_rate, deltaTime);
     
     // Update last time
     lastTime = currentTime;
@@ -445,18 +523,27 @@ void moveBackwardUntilEdge() {
 }
 
 void alignWithEdge() {
-    // Check if both back limit switches are pressed
-    if ((limitSwitchConfigs[4].isPressed && limitSwitchConfigs[5].isPressed) || // Both left back switches
-        (limitSwitchConfigs[6].isPressed && limitSwitchConfigs[7].isPressed)) { // Both right back switches
+    // Read back limit switch states
+    bool left_back_off = !limitSwitchConfigs[4].isPressed && !limitSwitchConfigs[5].isPressed;  // LBO and LBI
+    bool right_back_off = !limitSwitchConfigs[6].isPressed && !limitSwitchConfigs[7].isPressed; // RBO and RBI
+    
+    // If both back limit switches are off, we are aligned
+    if (left_back_off && right_back_off) {
         searchForCornerState = TURNRIGHT;
+        stopMotors();
         return;
     }
     
-    // Adjust position based on which switches are pressed
-    if (limitSwitchConfigs[4].isPressed || limitSwitchConfigs[5].isPressed) {
-        setTrajectory(0, 0.1); // Turn right
-    } else if (limitSwitchConfigs[6].isPressed || limitSwitchConfigs[7].isPressed) {
-        setTrajectory(0, -0.1); // Turn left
+    // If only the left back switch is off, rotate counterclockwise (CCW)
+    if (left_back_off) {
+        setTrajectory(0.01, -0.1);  // Small forward + left turn
+    }
+    // If only the right back switch is off, rotate clockwise (CW)
+    else if (right_back_off) {
+        setTrajectory(0.01, 0.1);  // Small forward + right turn
+    }
+    else {
+        setTrajectory(-0.01, 0);  // Move backward slightly
     }
 }
 
@@ -499,53 +586,97 @@ void turnLeft(int deg) {
 }
 
 void adjustBackAndForth() {
-    // Check if both back limit switches are pressed
-    if ((limitSwitchConfigs[4].isPressed && limitSwitchConfigs[5].isPressed) || // Both left back switches
-        (limitSwitchConfigs[6].isPressed && limitSwitchConfigs[7].isPressed)) { // Both right back switches
-        setTrajectory(0.01, 0); // Move forward slightly
-    } else if (!limitSwitchConfigs[4].isPressed && !limitSwitchConfigs[5].isPressed && // No left back switches
-               !limitSwitchConfigs[6].isPressed && !limitSwitchConfigs[7].isPressed) { // No right back switches
-        setTrajectory(-0.01, 0); // Move backward slightly
-    } else {
-        stopMotors();
-        searchForCornerState = MOVEBACKWARDSUNTILCORNER;
+    // Read limit switch states
+    bool rfo = limitSwitchConfigs[2].isPressed;  // RFO
+    bool rfi = limitSwitchConfigs[3].isPressed;  // RFI
+    bool rbo = limitSwitchConfigs[6].isPressed;  // RBO
+    bool rbi = limitSwitchConfigs[7].isPressed;  // RBI
+    
+    if (!rbo && !rbi) {  // Both back switches are off
+        if (!rfo && !rfi) {  // All switches are off
+            setTrajectory(0.02, 0.1);  // Forward and CCW
+        } else {  // One or both front switches are on
+            setTrajectory(0.02, -0.1);  // Forward and CW
+        }
+    }
+    else if (rbo && rbi) {  // Both back switches are on
+        setTrajectory(-0.02, 0.1);  // Backward and CCW
+    }
+    else {  // One back switch is off and one is on
+        if (rfo && rfi) {  // Both front switches are on
+            setTrajectory(-0.02, 0);  // Reverse straight back
+        }
+        else if (!rfo && !rfi) {  // Neither front switch is on
+            setTrajectory(-0.02, 0);  // Reverse straight back
+        }
+        else {
+            stopMotors();
+            searchForCornerState = MOVEBACKWARDSUNTILCORNER;
+        }
     }
 }
 
 void moveBackwardUntilCorner() {
-    setTrajectory(-0.05, 0); // Move backward at 5 cm/s
+    setTrajectory(-0.05, 0);  // Move backward at 5 cm/s
     
-    // Check if all back limit switches are pressed
-    if (limitSwitchConfigs[4].isPressed && limitSwitchConfigs[5].isPressed && // Both left back switches
-        limitSwitchConfigs[6].isPressed && limitSwitchConfigs[7].isPressed) { // Both right back switches
+    // Check for corner condition: both left and right back outer switches pressed
+    if (!limitSwitchConfigs[4].isPressed && !limitSwitchConfigs[6].isPressed) {  // LBO and RBO
         stopMotors();
         searchForCornerState = SEARCHDONE;
     }
 }
 
 void followEdge() {
-    float speed = 0.05; // 5 cm/s
-    float turnRate = 0;
+    float speed = 0.03;  // Move forward slowly
     
-    // Check front limit switches for edge following
-    if (limitSwitchConfigs[0].isPressed && limitSwitchConfigs[1].isPressed) {
-        turnRate = 0; // Both front switches pressed, maintain straight line
-    } else if (limitSwitchConfigs[0].isPressed) {
-        turnRate = -0.05; // Left front switch pressed, turn right
-    } else if (limitSwitchConfigs[1].isPressed) {
-        turnRate = 0.05; // Right front switch pressed, turn left
+    // Read limit switch states
+    bool rfo = limitSwitchConfigs[2].isPressed;  // RFO
+    bool rfi = limitSwitchConfigs[3].isPressed;  // RFI
+    bool lfo = limitSwitchConfigs[0].isPressed;  // LFO
+    bool lfi = limitSwitchConfigs[1].isPressed;  // LFI
+    
+    // If the left front switches went off, we reached a corner
+    if (!lfo || !lfi) {
+        stopMotors();
+        outerLoopState = TURNLEFT;
+        return;
     }
     
-    setTrajectory(speed, turnRate);
+    // Adjust turn rate based on limit switch readings
+    if (!rfi) {  // Inner limit switch went off
+        setTrajectory(speed/2, 0.1);  // Adjust slight CCW
+    }
+    else if (rfo) {  // Outer limit switch went on
+        setTrajectory(speed/2, -0.1);  // Adjust slight CW
+    }
+    else {
+        setTrajectory(speed, 0);  // Maintain straight line
+    }
 }
 
 void followInnerPath() {
-    float speed = 0.05; // 5 cm/s
-    float turnRate = 0.1; // Constant turn rate for inner path
+    // Check if any limit switch is not pressed (error condition)
+    bool allSwitchesPressed = true;
+    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
+        if (!limitSwitchConfigs[i].isPressed) {
+            allSwitchesPressed = false;
+            break;
+        }
+    }
+    
+    if (!allSwitchesPressed) {
+        stopMotors();
+        radioMessage = ERROR;
+        return;
+    }
+    
+    // Set constant turn rate for inner path
+    float speed = 0.05;  // 5 cm/s
+    float turnRate = 0.1;  // Constant turn rate
     
     // Check limit switches to adjust path if needed
     if (limitSwitchConfigs[0].isPressed || limitSwitchConfigs[1].isPressed) {
-        turnRate = -0.1; // Reverse turn direction if hitting edge
+        turnRate = -0.1;  // Reverse turn direction if hitting edge
     }
     
     setTrajectory(speed, turnRate);
