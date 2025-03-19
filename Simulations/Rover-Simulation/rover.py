@@ -492,6 +492,7 @@ class Rover:
         if self.motor_state == MotorStates.MOTOR_DIS:
             self.lockout_countdown = self.lockout_countdown - 1
             if self.lockout_countdown <= 0:
+                self.lockout_countdown = LOCKOUT_COUNTDOWN
                 self.motor_state = MotorStates.MOTOR_EN
             return        
         elif self.radio_message == RadioMessage.STARTCLEANINGOK and self.decision_state == DecisionStates.IDLE:
@@ -744,13 +745,6 @@ class Rover:
             self.inner_loop_states = InnerLoopStates.TURNLEFT
         
         
-        
-            
-            
-        
-
-
-
     def stop_motors(self): 
         """CONCRETE ACTION"""
         print("STOPPED")
