@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <PID_v1.h>
+#include <ICM_20948.h>
 
 // Define motor pins
 #define MOTOR_L_PWM 9    // D9 - Left motor PWM
@@ -112,14 +113,24 @@ struct SensorData {
 
 SensorData sensorData;
 
+// IMU Configuration
+#define SAMPLE_RATE 100  // Hz
+#define CALIBRATION_SAMPLES 250  // Reduced from 500
+#define VALIDATION_SAMPLES 100   // Reduced from 250
+#define STABILITY_THRESHOLD 0.1  // degrees/s for gyro, mg for accel
+
 // IMU data structure
 struct IMUData {
     float accel[3];    // [x, y, z] acceleration in m/s²
     float gyro[3];     // [x, y, z] angular velocity in rad/s
     float orientation[3]; // [roll, pitch, yaw] in radians
+    float accelBias[3];
+    float gyroBias[3];
+    bool isCalibrated;
 };
 
 IMUData imuData;
+ICM_20948_I2C ICM; // Create an I2C object for ICM-20948
 
 // Limit switch configuration
 struct LimitSwitchConfig {
@@ -215,7 +226,49 @@ void computeTravel(float linear_velocity, float turn_rate, float deltaTime) {
 void setup() {
     Serial.begin(115200);
     Wire.begin();
+    Wire.setClock(400000); // Set I2C clock to 400kHz
 
+    // Initialize IMU
+    bool initialized = false;
+    while (!initialized) {
+        ICM.begin(Wire, 0); // Address 0
+        Serial.print(F("Initialization of the sensor returned: "));
+        Serial.println(ICM.statusString());
+        
+        if (ICM.status != ICM_20948_Stat_Ok) {
+            Serial.println("Trying again...");
+            delay(500);
+        } else {
+            initialized = true;
+        }
+    }
+
+    // Configure IMU settings
+    ICM.setBank(2);  // Switch to register bank 2
+    
+    // Set accelerometer full-scale range to ±4g
+    ICM_20948_fss_t accelFss;
+    accelFss.a = 0x01;  // 0x01 = ±4g
+    ICM.setFullScale((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), accelFss);
+    
+    // Set gyroscope full-scale range to ±250°/s
+    ICM_20948_fss_t gyroFss;
+    gyroFss.g = 0x00;  // 0x00 = ±250°/s
+    ICM.setFullScale((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), gyroFss);
+    
+    ICM.setBank(0);  // Return to bank 0
+    
+    // Enable and configure DLPF
+    ICM.enableDLPF(ICM_20948_Internal_Acc, true);
+    ICM.enableDLPF(ICM_20948_Internal_Gyr, true);
+    
+    // Configure DLPF for accelerometer and gyroscope
+    ICM_20948_dlpcfg_t dlpcfg;
+    dlpcfg.a = 0x06;  // Accelerometer DLPF configuration
+    dlpcfg.g = 0x06;  // Gyroscope DLPF configuration
+    ICM.setDLPFcfg((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), dlpcfg);
+
+    // Initialize other pins
     pinMode(MOTOR_L_PWM, OUTPUT);
     pinMode(MOTOR_L_IN1, OUTPUT);
     pinMode(MOTOR_L_IN2, OUTPUT);
@@ -238,6 +291,11 @@ void setup() {
 
     pidLeft.SetMode(AUTOMATIC);
     pidRight.SetMode(AUTOMATIC);
+
+    // Perform IMU calibration
+    Serial.println("\nStarting IMU calibration...");
+    Serial.println("Please keep the IMU stationary during calibration.");
+    performIMUCalibration();
 
     Serial.println("Rover Initialized.");
 }
@@ -299,34 +357,74 @@ void updateData() {
     Serial.println(sensorData.imuPosition);
 }
 
-// Function to get IMU data
+void performIMUCalibration() {
+    float accelSum[3] = {0, 0, 0};
+    float gyroSum[3] = {0, 0, 0};
+    
+    Serial.println("Collecting calibration data...");
+    
+    for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
+        if (ICM.dataReady()) {
+            ICM.getAGMT();
+            
+            // Accumulate sensor readings
+            accelSum[0] += ICM.accX();
+            accelSum[1] += ICM.accY();
+            accelSum[2] += ICM.accZ() - 1000.0; // Subtract 1g from Z
+            
+            gyroSum[0] += ICM.gyrX();
+            gyroSum[1] += ICM.gyrY();
+            gyroSum[2] += ICM.gyrZ();
+            
+            delay(1000 / SAMPLE_RATE);
+            
+            if (i % 50 == 0) {
+                Serial.print("Calibration progress: ");
+                Serial.print(i * 100 / CALIBRATION_SAMPLES);
+                Serial.println("%");
+            }
+        }
+    }
+    
+    // Calculate biases
+    for (int i = 0; i < 3; i++) {
+        imuData.accelBias[i] = accelSum[i] / CALIBRATION_SAMPLES;
+        imuData.gyroBias[i] = gyroSum[i] / CALIBRATION_SAMPLES;
+    }
+    
+    // Apply calibration
+    ICM.setBiasAccelX((int32_t)(imuData.accelBias[0] * 16384.0f));
+    ICM.setBiasAccelY((int32_t)(imuData.accelBias[1] * 16384.0f));
+    ICM.setBiasAccelZ((int32_t)(imuData.accelBias[2] * 16384.0f));
+    
+    ICM.setBiasGyroX((int32_t)(imuData.gyroBias[0] * 16.4f));
+    ICM.setBiasGyroY((int32_t)(imuData.gyroBias[1] * 16.4f));
+    ICM.setBiasGyroZ((int32_t)(imuData.gyroBias[2] * 16.4f));
+    
+    imuData.isCalibrated = true;
+    Serial.println("IMU calibration complete.");
+}
+
 void getIMUData() {
-    // Read raw IMU data (placeholder - replace with actual IMU reading code)
-    Wire.beginTransmission(0x68); // IMU I2C address
-    Wire.write(0x3B); // Start register for accelerometer data
-    Wire.endTransmission();
-    Wire.requestFrom(0x68, 6); // Request 6 bytes for accelerometer data
-    
-    // Read accelerometer data
-    imuData.accel[0] = (Wire.read() << 8 | Wire.read()) / 16384.0; // Convert to m/s²
-    imuData.accel[1] = (Wire.read() << 8 | Wire.read()) / 16384.0;
-    imuData.accel[2] = (Wire.read() << 8 | Wire.read()) / 16384.0;
-    
-    // Read gyroscope data
-    Wire.beginTransmission(0x68);
-    Wire.write(0x43); // Start register for gyroscope data
-    Wire.endTransmission();
-    Wire.requestFrom(0x68, 6);
-    
-    imuData.gyro[0] = (Wire.read() << 8 | Wire.read()) / 131.0; // Convert to rad/s
-    imuData.gyro[1] = (Wire.read() << 8 | Wire.read()) / 131.0;
-    imuData.gyro[2] = (Wire.read() << 8 | Wire.read()) / 131.0;
-    
-    // Update orientation using gyroscope data
-    float deltaTime = (millis() - lastTime) / 1000.0;
-    imuData.orientation[0] += imuData.gyro[0] * deltaTime;
-    imuData.orientation[1] += imuData.gyro[1] * deltaTime;
-    imuData.orientation[2] += imuData.gyro[2] * deltaTime;
+    if (ICM.dataReady()) {
+        ICM.getAGMT();
+        
+        // Read accelerometer data
+        imuData.accel[0] = ICM.accX() - imuData.accelBias[0];
+        imuData.accel[1] = ICM.accY() - imuData.accelBias[1];
+        imuData.accel[2] = ICM.accZ() - imuData.accelBias[2] - 1000.0; // Subtract 1g from Z
+        
+        // Read gyroscope data
+        imuData.gyro[0] = ICM.gyrX() - imuData.gyroBias[0];
+        imuData.gyro[1] = ICM.gyrY() - imuData.gyroBias[1];
+        imuData.gyro[2] = ICM.gyrZ() - imuData.gyroBias[2];
+        
+        // Update orientation using gyroscope data
+        float deltaTime = (millis() - lastTime) / 1000.0;
+        imuData.orientation[0] += imuData.gyro[0] * deltaTime;
+        imuData.orientation[1] += imuData.gyro[1] * deltaTime;
+        imuData.orientation[2] += imuData.gyro[2] * deltaTime;
+    }
 }
 
 // Function to update limit switch states
