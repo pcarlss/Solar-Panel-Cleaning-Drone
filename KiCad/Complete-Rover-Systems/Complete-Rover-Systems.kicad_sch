@@ -631,6 +631,12 @@
 		)
 	)
 	(junction
+		(at 154.94 158.75)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "11fb8930-0624-48c0-a226-31c7aac3b881")
+	)
+	(junction
 		(at 144.78 156.21)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -649,28 +655,22 @@
 		(uuid "7c781c2a-5deb-45bb-bd74-f3536a94cd3f")
 	)
 	(junction
-		(at 154.94 160.02)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "829ae36f-27a5-410f-9226-e28a6877421e")
-	)
-	(junction
 		(at 160.02 166.37)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "87ffec79-9c4c-4a20-830a-3833764c7eaa")
 	)
 	(junction
-		(at 71.12 166.37)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "b21f499f-b7db-4d1a-b8d6-9b3a4f9fe070")
-	)
-	(junction
 		(at 156.21 156.21)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "b5f1903f-e057-4c21-be4a-cc8cb45c70ee")
+	)
+	(junction
+		(at 71.12 166.37)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "b79b6960-f339-4f98-bbe8-6f2caa812b24")
 	)
 	(junction
 		(at 76.2 166.37)
@@ -878,6 +878,16 @@
 	)
 	(wire
 		(pts
+			(xy 154.94 158.75) (xy 154.94 160.02)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "30df7f0f-9518-4494-8ccb-42a25b11aa18")
+	)
+	(wire
+		(pts
 			(xy 160.02 166.37) (xy 171.45 166.37)
 		)
 		(stroke
@@ -978,13 +988,23 @@
 	)
 	(wire
 		(pts
-			(xy 154.94 151.13) (xy 154.94 160.02)
+			(xy 154.94 151.13) (xy 154.94 158.75)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "3f46cc1b-4b70-42a7-999f-0d2084eb3016")
+	)
+	(wire
+		(pts
+			(xy 62.23 156.21) (xy 88.9 156.21)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3f53f7a7-0c2b-4cb5-9ea3-4a2619c0db99")
 	)
 	(wire
 		(pts
@@ -1058,16 +1078,6 @@
 	)
 	(wire
 		(pts
-			(xy 45.72 95.25) (xy 74.93 95.25)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "50faebba-7ff6-4654-a158-6a792fbcd3fa")
-	)
-	(wire
-		(pts
 			(xy 82.55 101.6) (xy 104.14 101.6)
 		)
 		(stroke
@@ -1115,6 +1125,16 @@
 			(type default)
 		)
 		(uuid "58eace62-6a95-45cd-8bf2-581aee3674b5")
+	)
+	(wire
+		(pts
+			(xy 71.12 146.05) (xy 71.12 166.37)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5bca17fa-f8cd-46ad-8ffd-13fb1286ded3")
 	)
 	(wire
 		(pts
@@ -1238,16 +1258,6 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 156.21) (xy 88.9 156.21)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "906821cd-65b2-4b7f-a17e-a779a8ffe0f9")
-	)
-	(wire
-		(pts
 			(xy 116.84 166.37) (xy 157.48 166.37)
 		)
 		(stroke
@@ -1348,16 +1358,6 @@
 	)
 	(wire
 		(pts
-			(xy 71.12 146.05) (xy 71.12 166.37)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "a718d175-a0ee-4d24-9765-8dc0772b3fd4")
-	)
-	(wire
-		(pts
 			(xy 62.23 166.37) (xy 71.12 166.37)
 		)
 		(stroke
@@ -1448,16 +1448,6 @@
 	)
 	(wire
 		(pts
-			(xy 74.93 95.25) (xy 74.93 156.21)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "c593177c-ae24-4d5c-93e7-3ba6ded5dfee")
-	)
-	(wire
-		(pts
 			(xy 59.69 124.46) (xy 104.14 124.46)
 		)
 		(stroke
@@ -1528,7 +1518,7 @@
 	)
 	(wire
 		(pts
-			(xy 62.23 160.02) (xy 154.94 160.02)
+			(xy 62.23 158.75) (xy 154.94 158.75)
 		)
 		(stroke
 			(width 0)
@@ -2197,7 +2187,7 @@
 		)
 	)
 	(sheet
-		(at 43.18 154.94)
+		(at 43.18 153.67)
 		(size 19.05 16.51)
 		(fields_autoplaced yes)
 		(stroke
@@ -2209,7 +2199,7 @@
 		)
 		(uuid "6832115b-c53d-4fc5-8a54-f93fdadad37c")
 		(property "Sheetname" "PowerSystemRover"
-			(at 43.18 154.2284 0)
+			(at 43.18 152.9584 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2218,7 +2208,7 @@
 			)
 		)
 		(property "Sheetfile" "PowerSystemRover.kicad_sch"
-			(at 43.18 172.0346 0)
+			(at 43.18 170.7646 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2227,13 +2217,23 @@
 			)
 		)
 		(property "Field2" ""
-			(at 43.18 154.94 0)
+			(at 43.18 153.67 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(hide yes)
 			)
+		)
+		(pin "Vout (5V)" output
+			(at 62.23 156.21 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+			(uuid "ef3db44a-35b6-4311-9fc3-4745679c2a34")
 		)
 		(pin "GND" input
 			(at 62.23 166.37 0)
@@ -2243,17 +2243,17 @@
 				)
 				(justify right)
 			)
-			(uuid "ddfb8a99-13e7-4afa-badc-c01dd777a3f2")
+			(uuid "2ef94802-ce5f-42c9-9803-fabb85402f77")
 		)
 		(pin "Vout (4S - 14V)" output
-			(at 62.23 160.02 0)
+			(at 62.23 158.75 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "56cc0635-a9b6-43f0-8f6a-9642f3dedbb0")
+			(uuid "cc1613c8-c639-454a-a5ac-9783bc9b94d3")
 		)
 		(instances
 			(project "Complete-Rover-Systems"
