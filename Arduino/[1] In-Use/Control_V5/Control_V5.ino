@@ -42,8 +42,8 @@ int scrollPosition = 0;
 
 float servoAngle = 90;
 
-bool toggleSafety = 0;
-String safety = " Armed";
+bool toggleSafety = 1;
+String safety = " Unarmed";
 
 bool startButtonPrevState = 0;
 int RBPrevState = 0;
@@ -51,7 +51,7 @@ int LBPrevState = 0;
 int display = 5;
 
 bool toggleHover = 1;
-String hover = "FREE";
+String hover = "Free";
 float hoverThrottleValue = 0;
 
 int missionPercentage = 0;
@@ -333,7 +333,7 @@ void loop() {
 
 
 
-    if (hover == "FREE") {
+    if (hover == "Free") {
       ControllerData.throttle = (abs(throttleInput) < DEAD_ZONE)
                                   ? rampToTarget(ControllerData.throttle, 1000, RAMP_UP_SPEED, RAMP_DOWN_THROTTLE)
                                   : rampToTarget(ControllerData.throttle, map(throttleInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
@@ -413,7 +413,7 @@ void loop() {
           lcd.setCursor(8, 1);
           lcd.print("T:");
 
-          if (hover == "HOLD") {
+          if (hover == "Hold") {
             if (hoverThrottleValue >= 1000) lcd.setCursor(10, 1);
             else if (hoverThrottleValue >= 100) {
               lcd.setCursor(10, 1);
