@@ -16,6 +16,11 @@ Servo ch4;
 Servo ch5;
 Servo ch6;
 
+int AUX1 = 992;
+int AUX2 = 992;
+unsigned long lastSignalTime = 0;
+bool signalLost = false;
+
 struct ControllerData {
   int roll;
   int pitch;
@@ -34,7 +39,7 @@ void ResetData()
   receivedData.yaw = 1500;                
   receivedData.angle = 90;
   receivedData.safety = 0;
-  receivedData.AUX = 0;                       
+  receivedData.AUX = false;                       
 }
 
 void setup() {
@@ -65,32 +70,39 @@ void setup() {
   Serial.println("Receiver ready, waiting for data...");
 }
 
+void reduceThrottleGradually() {
+  while (receivedData.throttle > 1000) {
+    receivedData.throttle -= 5; // Reduce throttle gradually
+    if (receivedData.throttle < 1000) receivedData.throttle = 1000;
+    ch3.writeMicroseconds(receivedData.throttle);
+    delay(100); // Smooth reduction delay
+  }
+}
+
 void loop() {
   if (radio.available()) {
+    lastSignalTime = millis(); // Reset signal loss timer
+    signalLost = false;
     radio.read(&receivedData, sizeof(receivedData));
 
-    // Serial.print("Throttle: ");
-    // Serial.print(receivedData.throttle);
-    // Serial.print(", Yaw: ");
-    // Serial.print(receivedData.yaw);
-    // Serial.print(", Pitch: ");
-    // Serial.print(receivedData.pitch);
-    // Serial.print(", Roll: ");
-    // Serial.print(receivedData.roll);
-    // Serial.print(", Safety: ");
-    // Serial.print(receivedData.safety);
-    // Serial.print(", Angle: ");
-    // Serial.println(receivedData.angle);
+    if (receivedData.AUX == false) AUX1 = 1792;
+    else AUX1 = 992;
 
     ch1.writeMicroseconds(receivedData.roll-7);
     ch2.writeMicroseconds(receivedData.pitch-7);
     ch3.writeMicroseconds(receivedData.throttle-5);
     ch4.writeMicroseconds(receivedData.yaw-7);
-    ch5.writeMicroseconds(receivedData.safety);
-    ch6.writeMicroseconds(receivedData.AUX); 
+    ch5.writeMicroseconds(AUX1);
+    ch6.writeMicroseconds(AUX2); 
 
     delay(1);
   } else {
-    delay(1);
+    if (millis() - lastSignalTime > 50) {
+      if (!signalLost) {
+        Serial.println("Signal lost! Reducing throttle...");
+        signalLost = true;
+      }
+      reduceThrottleGradually();
+    }
   }
 }
