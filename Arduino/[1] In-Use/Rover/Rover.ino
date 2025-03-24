@@ -453,9 +453,6 @@ void getLimitSwitchPositions() {
                  limitSwitchConfigs[i].relativePos[0] * sin(currentPosition.azimuth) +
                  limitSwitchConfigs[i].relativePos[1] * cos(currentPosition.azimuth);
                  
-        // Store positions in sensorData if needed
-        // sensorData.limitSwitchPositions[i][0] = x;
-        // sensorData.limitSwitchPositions[i][1] = y;
     }
 }
 

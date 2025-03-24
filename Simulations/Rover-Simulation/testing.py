@@ -822,7 +822,7 @@ def state_tester():
         status_timeline = np.append(status_timeline, status_array, axis=1)
         print(f"outer_state: \t{rover.outer_loop_states}")
         if rover.outer_loop_states == OuterLoopStates.DONE:
-            break          
+            break
         
     # Inner Loop Step
     for t in range(N):
@@ -839,6 +839,9 @@ def state_tester():
         pos_timeline = np.append(pos_timeline, pos_array, axis=1)
         status_timeline = np.append(status_timeline, status_array, axis=1)
         print(f"inner_state: \t{rover.inner_loop_states}\nnodes: {rover.panel_width_nodes, rover.panel_height_nodes}")
+        if rover.radio_message == RadioMessage.ERROR:
+            print("ERRORED OUT")
+            break
         if rover.inner_loop_states == InnerLoopStates.DONE:
             break          
             

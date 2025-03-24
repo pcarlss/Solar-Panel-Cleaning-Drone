@@ -39,7 +39,7 @@ class Rover:
         self.time_step = time_step
 
         # Sensor definitions
-        self.imu = IMU(time_step=self.time_step, k_linear=230, k_angular=0.015)
+        self.imu = IMU(time_step=self.time_step, k_linear=400, k_angular=0.005)
         self.rotary_encoder_l = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.5)
         self.rotary_encoder_r = RotaryEncoder(resolution=20, time_step = self.time_step, zero_time=0.5)
         
@@ -461,7 +461,7 @@ class Rover:
     
     def outer_loop_reverse(self):
         if self.desired_distance == None:
-            self.set_desired_distance(-1*self.axle_length)
+            self.set_desired_distance(-1*self.axle_length*0.75)
             self.set_desired_azimuth(self.estimated_pos.azimuth)
         self.update_positional_trajectory(direction=-1)
         if self.desired_distance >= 0:
@@ -601,13 +601,12 @@ class Rover:
         self.update_turning_trajectory(use_sensors=True)
 
         # Stop when the turn is completed
-        if abs(self.estimated_pos.azimuth - self.desired_azimuth) < 0.05:  # Small error threshold
+        if abs(self.estimated_pos.azimuth - self.desired_azimuth) < 0.01:  # Small error threshold
             self.desired_azimuth = None
             self.stop_motors()
             if self.outer_loop_states == OuterLoopStates.TURNLEFT:
-                
                 # This is the last turn, after the reversal
-                if len(self.corner_locations) == 4:
+                if len(self.corner_locations) == 5:
                     self.outer_loop_states = OuterLoopStates.DONE
                     return
                 self.outer_loop_states = OuterLoopStates.FOLLOWEDGE
@@ -676,8 +675,8 @@ class Rover:
         
         self.panel_height = np.average([np.linalg.norm(self.corner_locations[0] - self.corner_locations[1]), np.linalg.norm(self.corner_locations[2] - self.corner_locations[3])])
         self.panel_width = np.average([np.linalg.norm(self.corner_locations[1] - self.corner_locations[2]), np.linalg.norm(self.corner_locations[3] - self.corner_locations[0])])
-        self.panel_height_nodes = int(self.panel_height//self.axle_length) - 1 # -2 but round up, so turns out to -1
-        self.panel_width_nodes = int(self.panel_width//self.axle_length) - 1
+        self.panel_height_nodes = int(self.panel_height//(self.axle_length*0.75)) - 1 # -2 but round up, so turns out to -1
+        self.panel_width_nodes = int(self.panel_width//(self.axle_length*0.75)) - 2 # -3 but round up, so turns out to -2
         
     def follow_edge(self):
         """CONCRETE ACTION"""
@@ -695,12 +694,13 @@ class Rover:
         if not (lfo and lfi):
             self.stop_motors()
             # If this is the last corner
-            if len(self.corner_locations) == 4:
+            self.corner_locations.append(self.estimated_pos.position)
+
+            if len(self.corner_locations) == 5:
                 # Compute the number of inner nodes
                 self.map_inner_path()
                 self.outer_loop_states = OuterLoopStates.REVERSE # Need to reverse slightly
             else:
-                self.corner_locations.append(self.estimated_pos.position)
                 self.outer_loop_states = OuterLoopStates.TURNLEFT
             return
         
@@ -715,21 +715,20 @@ class Rover:
             self.set_trajectory(speed, 0)
         
         
-        
     def follow_inner_path(self):
         """CONCRETE ACTION"""
         """Follow the inner cleaning path using IMU for alignment."""
         # Set the desired distance to travel based on the height and width of the panel
         
-        if not all(self.get_limit_switch_readout()):
+        if not all(self.get_limit_switch_readout()[:3]):
             self.stop_motors()
             self.radio_message = RadioMessage.ERROR
         
         if self.desired_distance == None:
             if self.cleaning_axis == "height":
-                distance = self.panel_height_nodes*self.axle_length
+                distance = self.panel_height_nodes*self.axle_length*0.75
             elif self.cleaning_axis == "width":
-                distance = self.panel_width_nodes*self.axle_length
+                distance = self.panel_width_nodes*self.axle_length*0.75
             if distance == 0:
                 self.inner_loop_states = InnerLoopStates.DONE
                 self.stop_motors()
@@ -743,8 +742,7 @@ class Rover:
             self.desired_azimuth = None
             self.stop_motors()
             self.inner_loop_states = InnerLoopStates.TURNLEFT
-        
-        
+
     def stop_motors(self): 
         """CONCRETE ACTION"""
         print("STOPPED")
