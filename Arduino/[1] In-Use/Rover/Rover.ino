@@ -1,66 +1,73 @@
 #include <Wire.h>
 #include <PID_v1.h>
 #include <ICM_20948.h>
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
 
-// Define motor pins
+// ==================== Pin Definitions ====================
+// Motor pins
 #define MOTOR_L_PWM 9    // D9 - Left motor PWM
 #define MOTOR_L_IN1 8    // D8 - Left motor direction 1
 #define MOTOR_L_IN2 7    // D7 - Left motor direction 2
-
 #define MOTOR_R_PWM 10   // D10 - Right motor PWM
 #define MOTOR_R_IN1 11   // D11 - Right motor direction 1
 #define MOTOR_R_IN2 12   // D12 - Right motor direction 2
-
-// Define cleaning motor pin
 #define CLEANING_MOTOR_ENABLE 13  // D13 - Cleaning motor enable
 
-// Define limit switch pins (CD4051B multiplexer)
+// Limit switch pins
 #define LIMIT_SWITCH_COUNT 8
-#define LIMIT_SWITCH_PIN_SELECTOR_0 2  // D2 - Multiplexer address bit 0
-#define LIMIT_SWITCH_PIN_SELECTOR_1 3  // D3 - Multiplexer address bit 1
-#define LIMIT_SWITCH_PIN_SELECTOR_2 4  // D4 - Multiplexer address bit 2
-#define LIMIT_SWITCH_PIN_OUTPUT 5      // D5 - Multiplexer output
+#define LIMIT_SWITCH_PIN_SELECTOR_0 4  // D4 - Multiplexer address bit 0
+#define LIMIT_SWITCH_PIN_SELECTOR_1 5  // D5 - Multiplexer address bit 1
+#define LIMIT_SWITCH_PIN_SELECTOR_2 A2 // A2 - Multiplexer address bit 2
+#define LIMIT_SWITCH_PIN_OUTPUT A3     // A3 - Multiplexer output
 
-// IMU (ICM-20948) I2C pins
+// IMU pins
 #define IMU_SDA A4  // A4 - IMU I2C data
 #define IMU_SCL A5  // A5 - IMU I2C clock
 
-// Rotary Encoders
-#define ENCODER_L_A 2    // D2 - Left encoder channel A
-#define ENCODER_L_B 3    // D3 - Left encoder channel B
-#define ENCODER_R_A 4    // D4 - Right encoder channel A
-#define ENCODER_R_B 5    // D5 - Right encoder channel B
+// Encoder pins
+#define ENCODER_L_A 2    // D2 - Left encoder channel A (interrupt)
+#define ENCODER_L_B 3    // D3 - Left encoder channel B (interrupt)
+#define ENCODER_R_A A0   // A0 - Right encoder channel A
+#define ENCODER_R_B A1   // A1 - Right encoder channel B
 
-volatile long leftEncoderCount = 0;
-volatile long rightEncoderCount = 0;
+// Radio pins
+#define CE_PIN 6    // D6 - Radio CE pin
+#define CSN_PIN 7   // D7 - Radio CSN pin
 
-volatile long previousLeftEncoderCount = 0;
-volatile long previousRightEncoderCount = 0;
-volatile unsigned long previousEncoderTime = 0;  // For tracking time between encoders
-
-// Define variables to store encoder velocity (calculated in ISR)
-volatile float leftEncoderVelocity = 0.0;
-volatile float rightEncoderVelocity = 0.0;
-
-// PID control variables with feed-forward term
-double pidInputL, pidOutputL, pidSetpointL;
-double pidInputR, pidOutputR, pidSetpointR;
-double pidKp = 0.05;  // Proportional gain
-double pidKi = 0.5;   // Integral gain
-double pidKd = 0.05;  // Derivative gain
-double pidKff = 3.0;  // Feed-forward gain
-
-// Initialize PID controllers for left and right motors with feed-forward
-PID pidLeft(&pidInputL, &pidOutputL, &pidSetpointL, pidKp, pidKi, pidKd, DIRECT);
-PID pidRight(&pidInputR, &pidOutputR, &pidSetpointR, pidKp, pidKi, pidKd, DIRECT);
-
-// Physical constants from simulation
+// ==================== Constants ====================
+// Physical constants
 const float AXLE_LENGTH = 0.170;  // 170mm
 const float WHEEL_RADIUS = 0.025; // 25mm
 const float TOP_SPEED = 0.04;     // 4 cm/s
 const float TOP_TURN_RATE = 1.0;  // rad/s
+const float MIN_ANGLE = 0.1;      // Minimum angle change for velocity calculation
+const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
 
-// Position and orientation tracking
+// IMU Configuration
+#define SAMPLE_RATE 100  // Hz
+#define CALIBRATION_SAMPLES 250
+#define VALIDATION_SAMPLES 100
+#define STABILITY_THRESHOLD 0.1  // degrees/s for gyro, mg for accel
+
+// Add lockout constant after other constants
+#define LOCKOUT_COUNTDOWN 20  // Matches simulation
+
+// ==================== Type Definitions ====================
+// Enums for state management
+enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
+enum SearchForCornerStates { MOVEBACKWARDSUNTILEDGE, ALIGNWITHEDGE, TURNRIGHT, ADJUSTBACKANDFORTH, MOVEBACKWARDSUNTILCORNER, SEARCHDONE };
+enum OuterLoopStates { FOLLOWEDGE, TURNLEFT, OUTERDONE };
+enum InnerLoopStates { FOLLOWINNERPATH, TURNLEFTINNER, INNERDONE };
+enum RadioMessage { NOMESSAGE, STARTCLEANINGOK, CLEANINGDONETAKEMEAWAY, ERROR };
+
+// Structs
+struct Point {
+    float x;
+    float y;
+};
+
 struct PositionalInformation {
     float position[2];      // [x, y]
     float orientation[2];   // [x, y] unit vector
@@ -73,35 +80,11 @@ struct PositionalInformation {
     float r_speed;        // Right wheel speed
 };
 
-PositionalInformation currentPosition;
-PositionalInformation estimatedPosition;
-
-// Enums for state management
-enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
-enum SearchForCornerStates { MOVEBACKWARDSUNTILEDGE, ALIGNWITHEDGE, TURNRIGHT, ADJUSTBACKANDFORTH, MOVEBACKWARDSUNTILCORNER, SEARCHDONE };
-enum OuterLoopStates { FOLLOWEDGE, TURNLEFT, OUTERDONE };
-enum InnerLoopStates { FOLLOWINNERPATH, INNERDONE };
-enum RadioMessage { NOMESSAGE, STARTCLEANINGOK, CLEANINGDONETAKEMEAWAY, ERROR };
-
-// State variables
-DecisionStates decisionState = IDLE;
-SearchForCornerStates searchForCornerState = MOVEBACKWARDSUNTILEDGE;
-OuterLoopStates outerLoopState = FOLLOWEDGE;
-InnerLoopStates innerLoopState = FOLLOWINNERPATH;
-RadioMessage radioMessage = NOMESSAGE;
-
-// Motor speed control variables
-int l_speed = 0;
-int r_speed = 0;
-
-
-unsigned long lastTime = 0;  // For tracking time delta for integration
 struct LimitSwitchPair {
     bool innerLimitSwitch;
     bool outerLimitSwitch;
 };
 
-// Struct to store sensor data
 struct SensorData {
     LimitSwitchPair limitSwitches[LIMIT_SWITCH_COUNT];
     float accelX, accelY, accelZ;
@@ -111,15 +94,6 @@ struct SensorData {
     float lastPosition = 0.0, imuVelocity = 0.0, imuPosition = 0.0;    
 };
 
-SensorData sensorData;
-
-// IMU Configuration
-#define SAMPLE_RATE 100  // Hz
-#define CALIBRATION_SAMPLES 250  // Reduced from 500
-#define VALIDATION_SAMPLES 100   // Reduced from 250
-#define STABILITY_THRESHOLD 0.1  // degrees/s for gyro, mg for accel
-
-// IMU data structure
 struct IMUData {
     float accel[3];    // [x, y, z] acceleration in m/s²
     float gyro[3];     // [x, y, z] angular velocity in rad/s
@@ -129,16 +103,104 @@ struct IMUData {
     bool isCalibrated;
 };
 
-IMUData imuData;
-ICM_20948_I2C ICM; // Create an I2C object for ICM-20948
-
-// Limit switch configuration
 struct LimitSwitchConfig {
     float relativePos[2];  // [x, y] relative to rover center
     bool isPressed;
 };
 
-// Define limit switch configurations (relative positions in meters)
+struct ControllerData {
+  int roll;
+  int pitch;
+  int throttle;
+  int yaw;
+  int angle;
+  int safety;
+  bool AUX;
+};
+
+// ==================== Global Variables ====================
+// State variables
+DecisionStates decisionState = IDLE;
+SearchForCornerStates searchForCornerState = MOVEBACKWARDSUNTILEDGE;
+OuterLoopStates outerLoopState = FOLLOWEDGE;
+InnerLoopStates innerLoopState = FOLLOWINNERPATH;
+RadioMessage radioMessage = NOMESSAGE;
+
+// Motor control variables
+int l_speed = 0;
+int r_speed = 0;
+
+// PID control variables
+double pidInputL, pidOutputL, pidSetpointL;
+double pidInputR, pidOutputR, pidSetpointR;
+double pidKp = 0.05;  // Proportional gain
+double pidKi = 0.5;   // Integral gain
+double pidKd = 0.05;  // Derivative gain
+double pidKff = 3.0;  // Feed-forward gain
+
+// Add after other PID variables
+double posKp = 0.25;  // Position proportional gain
+double posKi = 0.05;  // Position integral gain
+double posKd = 0.0;   // Position derivative gain
+double oriKp = 0.8;   // Orientation proportional gain
+double oriKi = 0.0;   // Orientation integral gain
+double oriKd = 0.0;   // Orientation derivative gain
+double posPidInput, posPidOutput, posPidSetpoint;
+double oriPidInput, oriPidOutput, oriPidSetpoint;
+PID pidPosition(&posPidInput, &posPidOutput, &posPidSetpoint, posKp, posKi, posKd, DIRECT);
+PID pidOrientation(&oriPidInput, &oriPidOutput, &oriPidSetpoint, oriKp, oriKi, oriKd, DIRECT);
+
+// Encoder variables
+volatile long leftEncoderCount = 0;
+volatile long rightEncoderCount = 0;
+volatile long previousLeftEncoderCount = 0;
+volatile long previousRightEncoderCount = 0;
+volatile float leftEncoderVelocity = 0.0;
+volatile float rightEncoderVelocity = 0.0;
+volatile float timeBetweenL = 0;
+volatile float timeBetweenR = 0;
+volatile long prevStepL = 0;
+volatile long prevStepR = 0;
+volatile float discretePosL = 0;
+volatile float discretePosR = 0;
+volatile unsigned long sinceLastChangeL = 0;
+volatile unsigned long sinceLastChangeR = 0;
+
+// Timing variables
+unsigned long lastTime = 0;
+unsigned long lastUpdateTime = 0;
+unsigned long lastEncoderTime = 0;
+unsigned long lastIMUTime = 0;
+unsigned long lastSignalTime = 0;
+
+// Panel mapping variables
+Point cornerLocations[5];
+int cornerCount = 0;
+float panelHeight = 0;
+float panelWidth = 0;
+float desiredDistance = 0;
+float desiredAzimuth = 0;
+String cleaningAxis = "height";
+int panelHeightNodes = 0;
+int panelWidthNodes = 0;
+
+// Radio variables
+RF24 radio(CE_PIN, CSN_PIN);
+const byte address[6] = "00001";
+bool radioInitialized = false;
+bool signalLost = false;
+ControllerData receivedData;
+
+// Sensor objects and data
+ICM_20948_I2C ICM;
+IMUData imuData;
+SensorData sensorData;
+PositionalInformation currentPosition;
+PositionalInformation estimatedPosition;
+PID pidLeft(&pidInputL, &pidOutputL, &pidSetpointL, pidKp, pidKi, pidKd, DIRECT);
+PID pidRight(&pidInputR, &pidOutputR, &pidSetpointR, pidKp, pidKi, pidKd, DIRECT);
+
+// Limit switch configurations
 LimitSwitchConfig limitSwitchConfigs[LIMIT_SWITCH_COUNT] = {
     {{0.1, 0.105}, false},  // LFO
     {{0.1, 0.1}, false},    // LFI
@@ -150,26 +212,28 @@ LimitSwitchConfig limitSwitchConfigs[LIMIT_SWITCH_COUNT] = {
     {{-0.1, -0.1}, false}   // RBI
 };
 
-const float MIN_ANGLE = 0.1;  // Minimum angle change for velocity calculation
-const float ZERO_TIME = 0.5;  // Time in seconds before zeroing velocity
-volatile float timeBetweenL = 0;
-volatile float timeBetweenR = 0;
-volatile long prevStepL = 0;
-volatile long prevStepR = 0;
-volatile float discretePosL = 0;
-volatile float discretePosR = 0;
-volatile unsigned long sinceLastChangeL = 0;
-volatile unsigned long sinceLastChangeR = 0;
+// Add lockout variable to global variables section
+int lockoutCountdown = 0;
 
-// Function prototypes
+// ==================== Function Prototypes ====================
+// Core functions
 void updateData();
-void updateLimitSwitches();
-
-void encoderISR_L();
-void encoderISR_R();
 void updatePosition();
-void setTrajectory(float desiredSpeed, float desiredTurnRate);
+void makeDecision();
 
+// Motor control functions
+void stopMotors();
+void updateMotors();
+void setTrajectory(float linearVelocity, float turnRate);
+
+// Sensor functions
+void getIMUData();
+void performIMUCalibration();
+void updateLimitSwitches();
+void getLimitSwitchPositions();
+
+// Navigation functions
+void searchForCorner();
 void moveBackwardUntilEdge();
 void alignWithEdge();
 void turnRight(int deg);
@@ -178,135 +242,149 @@ void adjustBackAndForth();
 void moveBackwardUntilCorner();
 void followEdge();
 void followInnerPath();
-
-void stopMotors();
-void updateMotors();
-
-void makeDecision();
-void searchForCorner();
-
 void initializeCleaning();
 void cleanOuterLoop();
 void cleanInnerLoops();
 void whenDone();
 
-void getIMUData();
-void getLimitSwitchPositions();
+// Helper functions
+float getLinearVelocity();
+void computeTravel(float linear_velocity, float turn_rate, float deltaTime);
+bool checkLimitSwitches();
+float getCurrentAzimuth();
+void updatePositionalTrajectory();
+void updateTurningTrajectory();
+float calculatePID(float setpoint, float input);
+void mapInnerPath();
+float calculateDistance(Point p1, Point p2);
 
-// Add these helper functions before updatePosition
-float computeLinearVelocity(float l_speed, float r_speed) {
-    return (l_speed + r_speed) * WHEEL_RADIUS / 2;
-}
+// Interrupt handlers
+void encoderISR_L();
+void encoderISR_R();
 
-float computeTurnRate(float l_speed, float r_speed) {
-    return (r_speed - l_speed) * WHEEL_RADIUS / AXLE_LENGTH;
-}
-
-float computeLinearAcceleration(float l_accel, float r_accel) {
-    return (l_accel + r_accel) * WHEEL_RADIUS / 2;
-}
-
-float computeTurnAcceleration(float l_accel, float r_accel) {
-    return (l_accel - r_accel) * WHEEL_RADIUS / 2;
-}
-
-void computeTravel(float linear_velocity, float turn_rate, float deltaTime) {
-    // Update position using velocity
-    currentPosition.position[0] += linear_velocity * cos(currentPosition.azimuth) * deltaTime;
-    currentPosition.position[1] += linear_velocity * sin(currentPosition.azimuth) * deltaTime;
-    
-    // Update orientation using turn rate
-    currentPosition.azimuth += turn_rate * deltaTime;
-    
-    // Update orientation unit vector
-    currentPosition.orientation[0] = cos(currentPosition.azimuth);
-    currentPosition.orientation[1] = sin(currentPosition.azimuth);
-}
-
+// ==================== Setup and Main Loop ====================
 void setup() {
-    Serial.begin(115200);
-    Wire.begin();
-    Wire.setClock(400000); // Set I2C clock to 400kHz
+  // Initialize serial communication
+  Serial.begin(115200);
+  while (!Serial) {
+     // Wait for serial port to connect
+  }
 
-    // Initialize IMU
-    bool initialized = false;
-    while (!initialized) {
-        ICM.begin(Wire, 0); // Address 0
-        Serial.print(F("Initialization of the sensor returned: "));
-        Serial.println(ICM.statusString());
-        
-        if (ICM.status != ICM_20948_Stat_Ok) {
-            Serial.println("Trying again...");
-            delay(500);
-        } else {
-            initialized = true;
-        }
-    }
+  // Initialize IMU
+  Wire.begin();
+  if (!ICM.begin()) {
+    // Serial.println("Failed to initialize IMU!");
+    while (1);
+  }
 
-    // Configure IMU settings
-    ICM.setBank(2);  // Switch to register bank 2
-    
-    // Set accelerometer full-scale range to ±4g
-    ICM_20948_fss_t accelFss;
-    accelFss.a = 0x01;  // 0x01 = ±4g
-    ICM.setFullScale((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), accelFss);
-    
-    // Set gyroscope full-scale range to ±250°/s
-    ICM_20948_fss_t gyroFss;
-    gyroFss.g = 0x00;  // 0x00 = ±250°/s
-    ICM.setFullScale((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), gyroFss);
-    
-    ICM.setBank(0);  // Return to bank 0
-    
-    // Enable and configure DLPF
-    ICM.enableDLPF(ICM_20948_Internal_Acc, true);
-    ICM.enableDLPF(ICM_20948_Internal_Gyr, true);
-    
-    // Configure DLPF for accelerometer and gyroscope
-    ICM_20948_dlpcfg_t dlpcfg;
-    dlpcfg.a = 0x06;  // Accelerometer DLPF configuration
-    dlpcfg.g = 0x06;  // Gyroscope DLPF configuration
-    ICM.setDLPFcfg((ICM_20948_Internal_Acc | ICM_20948_Internal_Gyr), dlpcfg);
+  // Initialize IMU calibration
+  // Serial.println("IMU Calibration Starting...");
+  // Serial.println("Please keep the IMU stationary during calibration.");
+  performIMUCalibration();
 
-    // Initialize other pins
-    pinMode(MOTOR_L_PWM, OUTPUT);
-    pinMode(MOTOR_L_IN1, OUTPUT);
-    pinMode(MOTOR_L_IN2, OUTPUT);
-    pinMode(MOTOR_R_PWM, OUTPUT);
-    pinMode(MOTOR_R_IN1, OUTPUT);
-    pinMode(MOTOR_R_IN2, OUTPUT);
+  // Initialize radio
+  if (!radio.begin()) {
+    // Radio hardware not responding
+    while (1); // Stop if radio fails
+  }
+  
+  radio.openReadingPipe(0, address);
+  radio.setAutoAck(false);
+  radio.setDataRate(RF24_1MBPS);
+  radio.setPALevel(RF24_PA_MIN);
+  radio.setPayloadSize(sizeof(ControllerData));
+  radio.setChannel(100);
+  radio.startListening();
+  
+  radioInitialized = true;
+  
+  // Serial.println("Rover Initialized.");
 
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
+  // Initialize other pins
+  pinMode(MOTOR_L_PWM, OUTPUT);
+  pinMode(MOTOR_L_IN1, OUTPUT);
+  pinMode(MOTOR_L_IN2, OUTPUT);
+  pinMode(MOTOR_R_PWM, OUTPUT);
+  pinMode(MOTOR_R_IN1, OUTPUT);
+  pinMode(MOTOR_R_IN2, OUTPUT);
 
-    pinMode(ENCODER_L_A, INPUT_PULLUP);
-    pinMode(ENCODER_L_B, INPUT_PULLUP);
-    pinMode(ENCODER_R_A, INPUT_PULLUP);
-    pinMode(ENCODER_R_B, INPUT_PULLUP);
+  pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
+  pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
+  pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
+  pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
 
-    attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
+  pinMode(ENCODER_L_A, INPUT_PULLUP);
+  pinMode(ENCODER_L_B, INPUT_PULLUP);
+  pinMode(ENCODER_R_A, INPUT_PULLUP);
+  pinMode(ENCODER_R_B, INPUT_PULLUP);
 
-    pidLeft.SetMode(AUTOMATIC);
-    pidRight.SetMode(AUTOMATIC);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
-    // Perform IMU calibration
-    Serial.println("\nStarting IMU calibration...");
-    Serial.println("Please keep the IMU stationary during calibration.");
-    performIMUCalibration();
-
-    Serial.println("Rover Initialized.");
+  pidLeft.SetMode(AUTOMATIC);
+  pidRight.SetMode(AUTOMATIC);
+  pidPosition.SetMode(AUTOMATIC);
+  pidOrientation.SetMode(AUTOMATIC);
+  pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
+  pidOrientation.SetOutputLimits(-TOP_TURN_RATE, TOP_TURN_RATE);
 }
 
 void loop() {
+    // Check for radio signals
+    if (radio.available()) {
+        lastSignalTime = millis();
+        signalLost = false;
+        radio.read(&receivedData, sizeof(receivedData));
+        
+        // Handle start/stop signals
+        if (receivedData.AUX) {
+            // Start signal received
+            if (decisionState == IDLE) {
+                decisionState = SEARCHFORCORNER;
+                searchForCornerState = MOVEBACKWARDSUNTILEDGE;
+            }
+        } else {
+            // Stop signal received
+            if (decisionState != IDLE) {
+                decisionState = IDLE;
+                stopMotors();
+            }
+        }
+    } else {
+        // Check for signal loss
+        if (millis() - lastSignalTime > 50) {
+            if (!signalLost) {
+                signalLost = true;
+            }
+            // Emergency stop on signal loss
+            if (decisionState != IDLE) {
+                decisionState = IDLE;
+                stopMotors();
+            }
+        }
+    }
+    
     updateData();
     updatePosition();
     makeDecision();
+    
+    // Inner loop state machine
+    switch (innerLoopState) {
+        case FOLLOWINNERPATH:
+            followInnerPath();
+            break;
+        case TURNLEFTINNER:
+            turnLeft(90);
+            break;
+        case DONE:
+            // Inner loop complete, move to next state
+            decisionState = DONE;
+            break;
+    }
 }
 
-// Function to update data (integrates velocity and position from IMU)
+// ==================== Function Implementations ====================
+// Core functions
 void updateData() {
     // Update IMU data
     getIMUData();
@@ -336,32 +414,32 @@ void updateData() {
                                  imuData.accel[1] * imuData.accel[1]);
     sensorData.imuPosition = currentPosition.position[0]; // Using x position as example
 
+   // Debug print sensor data
+   // Serial.print("Left Velocity: ");
+   // Serial.print(leftEncoderVelocity);
+   // Serial.print(", Right Velocity: ");
+   // Serial.println(rightEncoderVelocity);
+    
     // Debug print sensor data
-    Serial.print("Left Velocity: ");
-    Serial.print(leftEncoderVelocity);
-    Serial.print(", Right Velocity: ");
-    Serial.println(rightEncoderVelocity);
-
-    // Debug print sensor data
-    Serial.print("Encoders: L=");
-    Serial.print(sensorData.leftEncoder);
-    Serial.print(", R=");
-    Serial.print(sensorData.rightEncoder);
-    Serial.print(" | Left Velocity: ");
-    Serial.print(sensorData.leftEncoderVelocity);
-    Serial.print(", Right Velocity: ");
-    Serial.print(sensorData.rightEncoderVelocity);
-    Serial.print(" | IMU Velocity: ");
-    Serial.print(sensorData.imuVelocity);
-    Serial.print(", IMU Position: ");
-    Serial.println(sensorData.imuPosition);
+    // Serial.print("Encoders: L=");
+    // Serial.print(sensorData.leftEncoder);
+    // Serial.print(", R=");
+    // Serial.print(sensorData.rightEncoder);
+    // Serial.print(" | Left Velocity: ");
+    // Serial.print(sensorData.leftEncoderVelocity);
+    // Serial.print(", Right Velocity: ");
+    // Serial.print(sensorData.rightEncoderVelocity);
+    // Serial.print(" | IMU Velocity: ");
+    // Serial.print(sensorData.imuVelocity);
+    // Serial.print(", IMU Position: ");
+    // Serial.println(sensorData.imuPosition);
 }
 
 void performIMUCalibration() {
     float accelSum[3] = {0, 0, 0};
     float gyroSum[3] = {0, 0, 0};
     
-    Serial.println("Collecting calibration data...");
+    // Serial.println("Collecting calibration data...");
     
     for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
         if (ICM.dataReady()) {
@@ -379,9 +457,9 @@ void performIMUCalibration() {
             delay(1000 / SAMPLE_RATE);
             
             if (i % 50 == 0) {
-                Serial.print("Calibration progress: ");
-                Serial.print(i * 100 / CALIBRATION_SAMPLES);
-                Serial.println("%");
+                // Serial.print("Calibration progress: ");
+                // Serial.print(i * 100 / CALIBRATION_SAMPLES);
+                // Serial.println("%");
             }
         }
     }
@@ -402,11 +480,14 @@ void performIMUCalibration() {
     ICM.setBiasGyroZ((int32_t)(imuData.gyroBias[2] * 16.4f));
     
     imuData.isCalibrated = true;
-    Serial.println("IMU calibration complete.");
+    // Serial.println("IMU calibration complete.");
 }
 
 void getIMUData() {
     if (ICM.dataReady()) {
+        unsigned long currentTime = millis();
+        float deltaTime = (currentTime - lastIMUTime) / 1000.0; // Convert to seconds
+        
         ICM.getAGMT();
         
         // Read accelerometer data
@@ -419,11 +500,12 @@ void getIMUData() {
         imuData.gyro[1] = ICM.gyrY() - imuData.gyroBias[1];
         imuData.gyro[2] = ICM.gyrZ() - imuData.gyroBias[2];
         
-        // Update orientation using gyroscope data
-        float deltaTime = (millis() - lastTime) / 1000.0;
+        // Update orientation using gyroscope data with actual elapsed time
         imuData.orientation[0] += imuData.gyro[0] * deltaTime;
         imuData.orientation[1] += imuData.gyro[1] * deltaTime;
         imuData.orientation[2] += imuData.gyro[2] * deltaTime;
+        
+        lastIMUTime = currentTime;
     }
 }
 
@@ -459,7 +541,7 @@ void getLimitSwitchPositions() {
 //add aidans encoder velocity processing
 void encoderISR_L() {
     unsigned long currentTime = millis();
-    float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
+    float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
     
     // Calculate the change in encoder count for the left encoder
     long deltaEncoder = leftEncoderCount - previousLeftEncoderCount;
@@ -485,7 +567,7 @@ void encoderISR_L() {
     // Handle complete step
     if (step != 0) {
         discretePosL += step * MIN_ANGLE;
-        leftEncoderVelocity = step * MIN_ANGLE / timeBetweenL;
+        leftEncoderVelocity = step * MIN_ANGLE / deltaTime;
         timeBetweenL = 0;
         prevStepL = step;
         sinceLastChangeL = 0;
@@ -500,12 +582,12 @@ void encoderISR_L() {
     timeBetweenL += deltaTime;
     sinceLastChangeL++;
     previousLeftEncoderCount = leftEncoderCount;
-    previousEncoderTime = currentTime;
+    lastEncoderTime = currentTime;
 }
 
 void encoderISR_R() {
     unsigned long currentTime = millis();
-    float deltaTime = (currentTime - previousEncoderTime) / 1000.0; // Time in seconds
+    float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
     
     // Calculate position change
     long deltaEncoder = rightEncoderCount - previousRightEncoderCount;
@@ -531,7 +613,7 @@ void encoderISR_R() {
     // Handle complete step
     if (step != 0) {
         discretePosR += step * MIN_ANGLE;
-        rightEncoderVelocity = step * MIN_ANGLE / timeBetweenR;
+        rightEncoderVelocity = step * MIN_ANGLE / deltaTime;
         timeBetweenR = 0;
         prevStepR = step;
         sinceLastChangeR = 0;
@@ -546,13 +628,13 @@ void encoderISR_R() {
     timeBetweenR += deltaTime;
     sinceLastChangeR++;
     previousRightEncoderCount = rightEncoderCount;
-    previousEncoderTime = currentTime;
+    lastEncoderTime = currentTime;
 }
 
 // **Update position based on encoder readings**
 void updatePosition() {
     unsigned long currentTime = millis();
-    float deltaTime = (currentTime - lastTime) / 1000.0; // Convert to seconds
+    float deltaTime = (currentTime - lastUpdateTime) / 1000.0; // Convert to seconds
     
     // Get track speeds from encoders
     float l_speed = leftEncoderVelocity;
@@ -567,12 +649,12 @@ void updatePosition() {
     float r_accel = (r_speed - currentPosition.r_speed) / deltaTime;
     
     // Compute center of mass velocities and turn rates
-    float linear_velocity = computeLinearVelocity(l_speed, r_speed);
-    float turn_rate = computeTurnRate(l_speed, r_speed);
+    float linear_velocity = getLinearVelocity();
+    float turn_rate = (r_speed - l_speed) * WHEEL_RADIUS / AXLE_LENGTH;
     
     // Compute accelerations
-    float linear_accel = computeLinearAcceleration(l_accel, r_accel);
-    float turn_accel = computeTurnAcceleration(l_accel, r_accel);
+    float linear_accel = (l_accel + r_accel) * WHEEL_RADIUS / 2;
+    float turn_accel = (l_accel - r_accel) * WHEEL_RADIUS / 2;
     
     // Update position information
     currentPosition.linear_accel = linear_accel;
@@ -580,7 +662,7 @@ void updatePosition() {
     currentPosition.turn_rate = turn_rate;
     currentPosition.turn_accel = turn_accel;
     
-    // Compute full travel
+    // Compute full travel using actual elapsed time
     computeTravel(linear_velocity, turn_rate, deltaTime);
     
     // Update last time
@@ -705,8 +787,8 @@ void adjustBackAndForth() {
             setTrajectory(-0.02, 0);  // Reverse straight back
         }
         else {
-            stopMotors();
-            searchForCornerState = MOVEBACKWARDSUNTILCORNER;
+        stopMotors();
+        searchForCornerState = MOVEBACKWARDSUNTILCORNER;
         }
     }
 }
@@ -733,53 +815,84 @@ void followEdge() {
     // If the left front switches went off, we reached a corner
     if (!lfo || !lfi) {
         stopMotors();
-        outerLoopState = TURNLEFT;
+        
+        // Store corner location
+        if (cornerCount < 5) {
+            cornerLocations[cornerCount].x = currentPosition.position[0];
+            cornerLocations[cornerCount].y = currentPosition.position[1];
+            cornerCount++;
+        }
+        
+        // If this is the last corner
+        if (cornerCount == 5) {
+            // Compute the number of inner nodes
+            mapInnerPath();
+            outerLoopState = OUTERDONE;
+        } else {
+            outerLoopState = TURNLEFT;
+        }
         return;
     }
     
     // Adjust turn rate based on limit switch readings
-    if (!rfi) {  // Inner limit switch went off
-        setTrajectory(speed/2, 0.1);  // Adjust slight CCW
+    if (!rfi) {
+        // Inner limit switch went off, adjust slight CCW
+        setTrajectory(speed/2, 0.1);
     }
-    else if (rfo) {  // Outer limit switch went on
-        setTrajectory(speed/2, -0.1);  // Adjust slight CW
+    else if (rfo) {
+        // Outer limit switch went on, adjust slight CW
+        setTrajectory(speed/2, -0.1);
     }
     else {
-        setTrajectory(speed, 0);  // Maintain straight line
+        setTrajectory(speed, 0);
     }
 }
 
 void followInnerPath() {
-    // Check if any limit switch is not pressed (error condition)
-    bool allSwitchesPressed = true;
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        if (!limitSwitchConfigs[i].isPressed) {
-            allSwitchesPressed = false;
-            break;
-        }
-    }
-    
-    if (!allSwitchesPressed) {
+    // Check limit switches for safety first
+    if (!checkLimitSwitches()) {
         stopMotors();
         radioMessage = ERROR;
         return;
     }
     
-    // Set constant turn rate for inner path
-    float speed = 0.05;  // 5 cm/s
-    float turnRate = 0.1;  // Constant turn rate
-    
-    // Check limit switches to adjust path if needed
-    if (limitSwitchConfigs[0].isPressed || limitSwitchConfigs[1].isPressed) {
-        turnRate = -0.1;  // Reverse turn direction if hitting edge
+    // If no desired distance set, calculate next path
+    if (desiredDistance == 0) {
+        if (cleaningAxis == "height") {
+            desiredDistance = panelHeightNodes * AXLE_LENGTH * 0.75;
+        } else {
+            desiredDistance = panelWidthNodes * AXLE_LENGTH * 0.75;
+        }
+        
+        // Check if we're done with this axis
+        if (desiredDistance == 0) {
+            innerLoopState = INNERDONE;
+            stopMotors();
+            return;
+        }
+        
+        // Set initial azimuth for this path
+        desiredAzimuth = getCurrentAzimuth();
     }
     
-    setTrajectory(speed, turnRate);
+    // Update trajectory
+    updatePositionalTrajectory();
+    
+    // Check if we've reached the end of this path
+    if (desiredDistance <= 0) {
+        desiredDistance = 0;
+        desiredAzimuth = 0;
+        stopMotors();
+        innerLoopState = TURNLEFTINNER;
+    }
 }
 
 void stopMotors() {
     analogWrite(MOTOR_L_PWM, 0);
     analogWrite(MOTOR_R_PWM, 0);
+    pidLeft.SetMode(MANUAL);
+    pidRight.SetMode(MANUAL);
+    lockoutCountdown = LOCKOUT_COUNTDOWN;
 }
 
 void updateMotors() {
@@ -805,25 +918,45 @@ void updateMotors() {
 }
 
 void makeDecision() {
-    //check limit switches to see if action is required
+    // Handle motor lockout
+    if (lockoutCountdown > 0) {
+        lockoutCountdown--;
+        return;
+    }
+    
+    // Re-enable PID when lockout is done
+    if (lockoutCountdown == 0) {
+        pidLeft.SetMode(AUTOMATIC);
+        pidRight.SetMode(AUTOMATIC);
+    }
     
     switch (decisionState) {
+        case IDLE:
+            // Wait for start command
+            if (radioMessage == STARTCLEANINGOK) {
+                decisionState = SEARCHFORCORNER;
+                searchForCornerState = MOVEBACKWARDSUNTILEDGE;
+            }
+            break;
+            
         case SEARCHFORCORNER:
             searchForCorner();
             break;
+            
         case BEGINCLEANING:
             initializeCleaning();
             break;
+            
         case CLEANOUTERLOOP:
             cleanOuterLoop();
             break;
+            
         case CLEANINNERLOOPS:
             cleanInnerLoops();
             break;
+            
         case DONE:
             whenDone();
-            break;
-        default:
             break;
     }
     updateMotors();
@@ -834,18 +967,23 @@ void searchForCorner() {
         case MOVEBACKWARDSUNTILEDGE:
             moveBackwardUntilEdge();
             break;
+            
         case ALIGNWITHEDGE:
             alignWithEdge();
             break;
+            
         case TURNRIGHT:
             turnRight(90);
             break;
+            
         case ADJUSTBACKANDFORTH:
             adjustBackAndForth();
             break;
+            
         case MOVEBACKWARDSUNTILCORNER:
             moveBackwardUntilCorner();
             break;
+            
         case SEARCHDONE:
             decisionState = BEGINCLEANING;
             break;
@@ -853,21 +991,21 @@ void searchForCorner() {
 }
 
 void initializeCleaning() {
-    Serial.println("Initializing cleaning...");
+    // Serial.println("Initializing cleaning...");
     digitalWrite(CLEANING_MOTOR_ENABLE, HIGH); // Turn on cleaning motor
     decisionState = CLEANOUTERLOOP;
 }
 
 void cleanOuterLoop() {
-    Serial.println("Cleaning outer loop...");
-
     switch (outerLoopState) {
         case FOLLOWEDGE:
             followEdge();
             break;
+            
         case TURNLEFT:
             turnLeft(90);
             break;
+            
         case OUTERDONE:
             stopMotors();
             decisionState = CLEANINNERLOOPS;
@@ -876,13 +1014,16 @@ void cleanOuterLoop() {
 }
 
 void cleanInnerLoops() {
-    Serial.println("Cleaning inner loops...");
-
     switch (innerLoopState) {
         case FOLLOWINNERPATH:
             followInnerPath();
             break;
-        case INNERDONE:
+            
+        case TURNLEFT:
+            turnLeft(90);
+            break;
+            
+        case DONE:
             stopMotors();
             decisionState = DONE;
             break;
@@ -890,8 +1031,124 @@ void cleanInnerLoops() {
 }
 
 void whenDone() {
-    Serial.println("Cleaning done. Sending radio message.");
+    // Serial.println("Cleaning complete. Sending radio message.");
     stopMotors();
-    digitalWrite(CLEANING_MOTOR_ENABLE, LOW); // Turn off cleaning motor
+    digitalWrite(CLEANING_MOTOR_ENABLE, LOW);
+    radioMessage = CLEANINGDONETAKEMEAWAY;
     decisionState = DONE;
+}
+
+bool checkLimitSwitches() {
+    // Check front limit switches (first 4 switches)
+    bool frontSwitchesOk = limitSwitchConfigs[0].isPressed && // LFO
+                          limitSwitchConfigs[1].isPressed && // LFI
+                          limitSwitchConfigs[2].isPressed && // RFO
+                          limitSwitchConfigs[3].isPressed;   // RFI
+                          
+    return frontSwitchesOk;
+}
+
+float getCurrentAzimuth() {
+    // Get current azimuth from IMU orientation
+    return imuData.orientation[2];  // Yaw angle in radians
+}
+
+void updatePositionalTrajectory() {
+    unsigned long currentTime = millis();
+    float deltaTime = (currentTime - lastUpdateTime) / 1000.0; // Convert to seconds
+    
+    // Update position PID
+    posPidInput = desiredDistance;
+    posPidSetpoint = 0;  // We want to reduce distance to zero
+    pidPosition.Compute();
+    float desiredSpeed = posPidOutput;
+    
+    // Update orientation PID
+    oriPidInput = getCurrentAzimuth();
+    oriPidSetpoint = desiredAzimuth;
+    pidOrientation.Compute();
+    float turnRate = oriPidOutput;
+    
+    // Update desired distance using actual elapsed time
+    desiredDistance -= getLinearVelocity() * deltaTime;
+    
+    // Set motor speeds
+    setTrajectory(desiredSpeed, turnRate);
+    
+    // Update last time
+    lastUpdateTime = currentTime;
+}
+
+void updateTurningTrajectory() {
+    // Update orientation PID
+    oriPidInput = getCurrentAzimuth();
+    oriPidSetpoint = desiredAzimuth;
+    pidOrientation.Compute();
+    float turnRate = oriPidOutput;
+    
+    setTrajectory(0, turnRate);
+}
+
+float calculatePID(float setpoint, float input) {
+    // Simple proportional control for now
+    // Can be expanded to full PID if needed
+    return (setpoint - input) * 0.5;  // Proportional gain of 0.5
+}
+
+void mapInnerPath() {
+    // Calculate panel dimensions from corner locations
+    panelHeight = (calculateDistance(cornerLocations[0], cornerLocations[1]) + 
+                  calculateDistance(cornerLocations[2], cornerLocations[3])) / 2;
+    panelWidth = (calculateDistance(cornerLocations[1], cornerLocations[2]) + 
+                 calculateDistance(cornerLocations[3], cornerLocations[0])) / 2;
+    
+    // Calculate number of nodes for inner cleaning pattern
+    panelHeightNodes = (int)(panelHeight / (AXLE_LENGTH * 0.75)) - 1;
+    panelWidthNodes = (int)(panelWidth / (AXLE_LENGTH * 0.75)) - 2;
+    
+    // Initialize cleaning axis
+    cleaningAxis = "height";
+}
+
+float calculateDistance(Point p1, Point p2) {
+    float dx = p2.x - p1.x;
+    float dy = p2.y - p1.y;
+    return sqrt(dx*dx + dy*dy);
+}
+
+float getLinearVelocity() {
+    // Calculate linear velocity from wheel speeds
+    return (leftEncoderVelocity + rightEncoderVelocity) * WHEEL_RADIUS / 2;
+}
+
+void computeTravel(float linear_velocity, float turn_rate, float deltaTime) {
+    float d_theta = turn_rate * deltaTime;  // rotation amount, radians
+    float d_s = linear_velocity * deltaTime; // distance amount, m
+    
+    // Update azimuth
+    currentPosition.azimuth = fmod((currentPosition.azimuth + d_theta), (2 * PI));
+    
+    // Update orientation vector
+    float x = currentPosition.orientation[0];
+    float y = currentPosition.orientation[1];
+    currentPosition.orientation[0] = x*cos(d_theta) - y*sin(d_theta);
+    currentPosition.orientation[1] = x*sin(d_theta) + y*cos(d_theta);
+    
+    // If track speeds are equal (within small threshold), move straight
+    if (abs(currentPosition.r_speed - currentPosition.l_speed) < 0.001) {
+        currentPosition.position[0] += linear_velocity * cos(currentPosition.azimuth) * deltaTime;
+        currentPosition.position[1] += linear_velocity * sin(currentPosition.azimuth) * deltaTime;
+    } else {
+        // Move along circle perimeter
+        float turn_radius = AXLE_LENGTH/2 * (currentPosition.r_speed + currentPosition.l_speed) / 
+                          (currentPosition.r_speed - currentPosition.l_speed);
+        
+        // Calculate displacement vector
+        float displacement_x = x*cos(d_theta/2) - y*sin(d_theta/2);
+        float displacement_y = x*sin(d_theta/2) + y*cos(d_theta/2);
+        float displacement_mag = 2 * turn_radius * sin(d_theta/2);
+        
+        currentPosition.position[0] += displacement_x * displacement_mag;
+        currentPosition.position[1] += displacement_y * displacement_mag;
+    }
 }
