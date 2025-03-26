@@ -42,7 +42,7 @@ const float AXLE_LENGTH = 0.170;  // 170mm
 const float WHEEL_RADIUS = 0.025; // 25mm
 const float TOP_SPEED = 0.04;     // 4 cm/s
 const float TOP_TURN_RATE = 1.0;  // rad/s
-const float MIN_ANGLE = 0.1;      // Minimum angle change for velocity calculation
+const float MIN_ANGLE = 0.31415926535;      // Minimum angle change for velocity calculation
 const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
 
 // IMU Configuration
@@ -151,20 +151,22 @@ PID pidPosition(&posPidInput, &posPidOutput, &posPidSetpoint, posKp, posKi, posK
 PID pidOrientation(&oriPidInput, &oriPidOutput, &oriPidSetpoint, oriKp, oriKi, oriKd, DIRECT);
 
 // Encoder variables
-volatile long leftEncoderCount = 0;
-volatile long rightEncoderCount = 0;
-volatile long previousLeftEncoderCount = 0;
-volatile long previousRightEncoderCount = 0;
+const int numReadings = 20;
+float readingsL[numReadings] = {0};
+float readingsR[numReadings] = {0};
+int indexL = 0;
+int indexR = 0;
+bool filledL = false;
+bool filledR = false;
+
 volatile float leftEncoderVelocity = 0.0;
 volatile float rightEncoderVelocity = 0.0;
-volatile float timeBetweenL = 0;
-volatile float timeBetweenR = 0;
-volatile long prevStepL = 0;
-volatile long prevStepR = 0;
-volatile float discretePosL = 0;
-volatile float discretePosR = 0;
-volatile unsigned long sinceLastChangeL = 0;
-volatile unsigned long sinceLastChangeR = 0;
+volatile long timeBetweenL = 0;
+volatile long timeBetweenR = 0;
+volatile short prevStepL = 0;
+volatile short prevStepR = 0;
+volatile unsigned long previousTimeL = millis();
+volatile unsigned long previousTimeR = millis();
 
 // Timing variables
 unsigned long lastTime = 0;
@@ -261,6 +263,12 @@ float calculateDistance(Point p1, Point p2);
 // Interrupt handlers
 void encoderISR_L();
 void encoderISR_R();
+
+// Encoder Reading Functions
+float getLeftEncoderVelocity();
+float getAvgLeftEncoderVelocity();
+float getRightEncoderVelocity();
+float getAvgRightEncoderVelocity();
 
 // ==================== Setup and Main Loop ====================
 void setup() {
@@ -404,10 +412,8 @@ void updateData() {
     sensorData.gyroZ = imuData.gyro[2];
     
     // Update encoder data
-    sensorData.leftEncoder = leftEncoderCount;
-    sensorData.rightEncoder = rightEncoderCount;
-    sensorData.leftEncoderVelocity = leftEncoderVelocity;
-    sensorData.rightEncoderVelocity = rightEncoderVelocity;
+    sensorData.leftEncoderVelocity = getAvgLeftEncoderVelocity();
+    sensorData.rightEncoderVelocity = getAvgRightEncoderVelocity();
     
     // Update IMU-based position and velocity
     sensorData.imuVelocity = sqrt(imuData.accel[0] * imuData.accel[0] + 
@@ -540,95 +546,137 @@ void getLimitSwitchPositions() {
 
 //add aidans encoder velocity processing
 void encoderISR_L() {
-    unsigned long currentTime = millis();
-    float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
-    
-    // Calculate the change in encoder count for the left encoder
-    long deltaEncoder = leftEncoderCount - previousLeftEncoderCount;
-    float step = deltaEncoder / MIN_ANGLE;
-    
+    unsigned long currentTime = millis(); // get current time
+    long timeBetween = currentTime - previousTimeL; // find delta T, only internal and don't update the global
+    short stepL = 0; // define current step
+  
+    // if the time between is too short, act as software debounce and reject the input
+    if (timeBetween < MIN_TIME) {
+      return;
+    }
+    // Handle ghost backwards inputs
+    if (digitalRead(ENCODER_L_B) != digitalRead(ENCODER_L_A)) {
+      stepL = 1; // Invert these for the right
+    }
+  
+    else {
+      stepL = -1;
+    }
+  
+    // Set previous time to current time, update global timeBetweenL
+    timeBetweenL = timeBetween;
+    previousTimeL = currentTime;  
+  
     // Handle immediate reversal (first reading)
     if (prevStepL == 0) {
-        prevStepL = step;
-        discretePosL += step * MIN_ANGLE;
+        prevStepL = stepL;
         return;
     }
-    
+      
     // Handle zero-crossing
-    if ((prevStepL != 0) && (prevStepL == -step)) {
-        discretePosL += step * MIN_ANGLE;
+    // (if the sign of the direction changes, assume the new current velocity is zero)
+    if ((prevStepL != 0) && (prevStepL == -stepL)) {
         leftEncoderVelocity = 0;
-        timeBetweenL = 0;
-        prevStepL = step;
-        sinceLastChangeL = 0;
+        prevStepL = stepL;
         return;
     }
-    
     // Handle complete step
-    if (step != 0) {
-        discretePosL += step * MIN_ANGLE;
-        leftEncoderVelocity = step * MIN_ANGLE / deltaTime;
-        timeBetweenL = 0;
-        prevStepL = step;
-        sinceLastChangeL = 0;
+    if (stepL != 0) {
+        leftEncoderVelocity = 1000 * stepL * MIN_ANGLE / timeBetweenL;
+        prevStepL = stepL;
     }
-    
-    // Zero velocity timeout
-    if (timeBetweenL > ZERO_TIME) {
-        leftEncoderVelocity = 0;
-        timeBetweenL = ZERO_TIME;
-    }
-    
-    timeBetweenL += deltaTime;
-    sinceLastChangeL++;
-    previousLeftEncoderCount = leftEncoderCount;
-    lastEncoderTime = currentTime;
+    return;
 }
 
 void encoderISR_R() {
-    unsigned long currentTime = millis();
-    float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
-    
-    // Calculate position change
-    long deltaEncoder = rightEncoderCount - previousRightEncoderCount;
-    float step = deltaEncoder / MIN_ANGLE;
-    
+    unsigned long currentTime = millis(); // get current time
+    long timeBetween = currentTime - previousTimeR; // find delta T, only internal and don't update the global
+    short stepR = 0; // define current step
+  
+    // if the time between is too short, act as software debounce and reject the input
+    if (timeBetween < MIN_TIME) {
+      return;
+    }
+    // Handle ghost backwards inputs
+    if (digitalRead(ENCODER_R_B) != digitalRead(ENCODER_R_A)) {
+      stepR = -1; // Invert these for the right
+    }
+  
+    else {
+      stepR = +1;
+    }
+  
+    // Set previous time to current time, update global timeBetweenL
+    timeBetweenR = timeBetween;
+    previousTimeR = currentTime;  
+  
     // Handle immediate reversal (first reading)
     if (prevStepR == 0) {
-        prevStepR = step;
-        discretePosR += step * MIN_ANGLE;
+        prevStepR = stepR;
         return;
     }
-    
+      
     // Handle zero-crossing
-    if ((prevStepR != 0) && (prevStepR == -step)) {
-        discretePosR += step * MIN_ANGLE;
+    // (if the sign of the direction changes, assume the new current velocity is zero)
+    if ((prevStepR != 0) && (prevStepR == -stepR)) {
         rightEncoderVelocity = 0;
-        timeBetweenR = 0;
-        prevStepR = step;
-        sinceLastChangeR = 0;
+        prevStepR = stepR;
         return;
     }
-    
     // Handle complete step
-    if (step != 0) {
-        discretePosR += step * MIN_ANGLE;
-        rightEncoderVelocity = step * MIN_ANGLE / deltaTime;
-        timeBetweenR = 0;
-        prevStepR = step;
-        sinceLastChangeR = 0;
+    if (stepR != 0) {
+        rightEncoderVelocity = 1000 * stepR * MIN_ANGLE / timeBetweenR;
+        prevStepR = stepR;
     }
-    
-    // Zero velocity timeout
-    if (timeBetweenR > ZERO_TIME) {
+    return;
+}
+
+float getLeftEncoderVelocity() {
+    unsigned long currentTime = millis();
+    long timeBetween = currentTime - previousTimeL;
+    if (timeBetween > ZERO_TIME) {
+      leftEncoderVelocity = 0;
+      previousTimeL = millis();
+    }
+    return leftEncoderVelocity;
+}
+
+float getRightEncoderVelocity() {
+    unsigned long currentTime = millis();
+    long timeBetween = currentTime - previousTimeR;
+    if (timeBetween > ZERO_TIME) {
         rightEncoderVelocity = 0;
-        timeBetweenR = ZERO_TIME;
+        previousTimeR = millis();
     }
-    
-    timeBetweenR += deltaTime;
-    sinceLastChangeR++;
-    previousRightEncoderCount = rightEncoderCount;
-    lastEncoderTime = currentTime;
+    return rightEncoderVelocity;
+}
+
+float getAvgLeftEncoderVelocity() {
+    readingsL[indexL] = getLeftEncoderVelocity();
+    indexL = (indexL + 1) % numReadings;
+
+    if (indexL == 0) filledL = true;
+
+    float sum = 0;
+    int count = filledL ? numReadings : indexL;
+    for (int i = 0; i<count; i++) {
+        sum += readingsL[i];
+    }
+    return sum / count;
+}
+
+float getAvgRightEncoderVelocity() {
+    readingsR[indexR] = getRightEncoderVelocity();
+    indexR = (indexR + 1) % numReadings;
+
+    if (indexR == 0) filledR = true;
+
+    float sum = 0;
+    int count = filledR ? numReadings : indexR;
+    for (int i = 0; i<count; i++) {
+        sum += readingsR[i];
+    }
+    return sum / count;
 }
 
 // **Update position based on encoder readings**
@@ -637,8 +685,8 @@ void updatePosition() {
     float deltaTime = (currentTime - lastUpdateTime) / 1000.0; // Convert to seconds
     
     // Get track speeds from encoders
-    float l_speed = leftEncoderVelocity;
-    float r_speed = rightEncoderVelocity;
+    float l_speed = getAvgLeftEncoderVelocity();
+    float r_speed = getAvgRightEncoderVelocity();
     
     // Store speeds in position information
     currentPosition.l_speed = l_speed;
@@ -1118,7 +1166,7 @@ float calculateDistance(Point p1, Point p2) {
 
 float getLinearVelocity() {
     // Calculate linear velocity from wheel speeds
-    return (leftEncoderVelocity + rightEncoderVelocity) * WHEEL_RADIUS / 2;
+    return (getAvgLeftEncoderVelocity() + getAvgRightEncoderVelocity()) * WHEEL_RADIUS / 2;
 }
 
 void computeTravel(float linear_velocity, float turn_rate, float deltaTime) {
