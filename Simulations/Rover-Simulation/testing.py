@@ -729,13 +729,13 @@ def state_tester():
     panel = SolarPanelArea(1,1,100)
     
     starting_position = np.array([0.5, 0.5])
-    starting_orientation = np.array([np.cos(0), np.sin(0)])
+    starting_orientation = np.array([np.cos(np.deg2rad(30)), np.sin(np.deg2rad(30))])
     rover = Rover(panel, dt, starting_position, starting_orientation)
     rover.estimated_pos.position = starting_position
     rover.estimated_pos.orientation = starting_orientation
     time = 100000
-    show_every = 50
-    
+    show_every = 10
+    t0=0
     N = int(time // dt)
     
     #Fill buffer
@@ -802,10 +802,12 @@ def state_tester():
 
         pos_timeline = np.append(pos_timeline, pos_array, axis=1)
         status_timeline = np.append(status_timeline, status_array, axis=1)
-        print(f"corner_state: \t{rover.search_for_corner_state}")
+        print(f"time: {t*dt:.2f}s/{t0+t*dt:.2f}s\tcorner_state: \t{rover.search_for_corner_state}", end="\r")
         if rover.search_for_corner_state == SearchForCornerStates.DONE:
+            t0 += t*dt
             break
     
+    print()
     # Outer Loop Step
     for t in range(N):
         rover.simulate()
@@ -820,10 +822,12 @@ def state_tester():
 
         pos_timeline = np.append(pos_timeline, pos_array, axis=1)
         status_timeline = np.append(status_timeline, status_array, axis=1)
-        print(f"outer_state: \t{rover.outer_loop_states}")
+        print(f"time: {t*dt:.2f}s/{t0+t*dt:.2f}s\touter_state: \t{rover.outer_loop_states}", end="\r")
         if rover.outer_loop_states == OuterLoopStates.DONE:
+            t0 +=t*dt
             break
         
+    print("")
     # Inner Loop Step
     for t in range(N):
         rover.simulate()
@@ -838,24 +842,23 @@ def state_tester():
 
         pos_timeline = np.append(pos_timeline, pos_array, axis=1)
         status_timeline = np.append(status_timeline, status_array, axis=1)
-        print(f"inner_state: \t{rover.inner_loop_states}\nnodes: {rover.panel_width_nodes, rover.panel_height_nodes}")
+        print(f"time: {t*dt:.2f}s/{t0+t*dt:.2f}s\tinner_state: \t{rover.inner_loop_states}\tnodes: {rover.panel_width_nodes, rover.panel_height_nodes}", end="\r")
         if rover.radio_message == RadioMessage.ERROR:
             print("ERRORED OUT")
             break
         if rover.inner_loop_states == InnerLoopStates.DONE:
+            t0 += t*dt
             break          
-            
-        
     
     def animate(i):
-        center_pos.set_data([center_xs[show_every*i]],[center_ys[show_every*i]])
-        estimated_pos.set_data([est_center_xs[show_every*i]],[est_center_ys[show_every*i]])
+        center_pos.set_data([center_xs[i]],[center_ys[i]])
+        estimated_pos.set_data([est_center_xs[i]],[est_center_ys[i]])
 
-        center_path.set_data(center_xs[:show_every*i],center_ys[:show_every*i])
-        estimated_path.set_data(est_center_xs[:show_every*i],est_center_ys[:show_every*i])
+        center_path.set_data(center_xs[:i],center_ys[:i])
+        estimated_path.set_data(est_center_xs[:i],est_center_ys[:i])
         for switch, status, plot in zip(pos_timeline, status_timeline, plots):
-            x,y = switch[show_every*i]
-            state = status[show_every*i]
+            x,y = switch[i]
+            state = status[i]
             plot[0].set_data([x],[y])
             if state:
                 plot[0].set_color('b')
@@ -863,18 +866,19 @@ def state_tester():
                 plot[0].set_color('r')
                 
         return plots, center_pos, estimated_pos, center_path, estimated_path
+    print()
     
-    ax.legend()
+    # ax.legend()
     ani = FuncAnimation(
         fig,
         animate,
-        interval=100,
+        interval=10,
         blit=False,
-        frames=range(1,int(len(center_xs))),
-        repeat_delay=100
+        frames=range(1,int(len(center_xs)), show_every),
+        repeat_delay=1000
     )
     
-    # ani.save("rover_mission.gif")
+    ani.save("rover_mission.gif")
     plt.show()
 
 

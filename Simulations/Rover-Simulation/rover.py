@@ -553,7 +553,6 @@ class Rover:
         right_back_off = not self.limit_switch_rbo.is_pressed(self.positional_information.position, self.positional_information.azimuth)
         # If both back limit switches are off, we are aligned
         if left_back_off and right_back_off:
-            print("VALID")
             self.search_for_corner_state = SearchForCornerStates.TURNRIGHT
             self.stop_motors()            
             return
@@ -744,7 +743,6 @@ class Rover:
 
     def stop_motors(self): 
         """CONCRETE ACTION"""
-        print("STOPPED")
         self.track_motor_l.update(0)
         self.track_motor_r.update(0)
         self.track_pid_l.reset()
