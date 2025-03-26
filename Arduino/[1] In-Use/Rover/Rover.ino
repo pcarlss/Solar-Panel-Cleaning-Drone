@@ -54,6 +54,9 @@ const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
 // Add lockout constant after other constants
 #define LOCKOUT_COUNTDOWN 20  // Matches simulation
 
+// Add debounce constant after other constants
+#define ENCODER_DEBOUNCE_TIME 10  // Minimum time between readings in ms
+
 // ==================== Type Definitions ====================
 // Enums for state management
 enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
@@ -265,13 +268,13 @@ void encoderISR_R();
 // ==================== Setup and Main Loop ====================
 void setup() {
   // Initialize serial communication
-  Serial.begin(115200);
+    Serial.begin(115200);
   while (!Serial) {
      // Wait for serial port to connect
   }
 
   // Initialize IMU
-  Wire.begin();
+    Wire.begin();
   if (!ICM.begin()) {
     // Serial.println("Failed to initialize IMU!");
     while (1);
@@ -301,28 +304,28 @@ void setup() {
   // Serial.println("Rover Initialized.");
 
   // Initialize other pins
-  pinMode(MOTOR_L_PWM, OUTPUT);
-  pinMode(MOTOR_L_IN1, OUTPUT);
-  pinMode(MOTOR_L_IN2, OUTPUT);
-  pinMode(MOTOR_R_PWM, OUTPUT);
-  pinMode(MOTOR_R_IN1, OUTPUT);
-  pinMode(MOTOR_R_IN2, OUTPUT);
+    pinMode(MOTOR_L_PWM, OUTPUT);
+    pinMode(MOTOR_L_IN1, OUTPUT);
+    pinMode(MOTOR_L_IN2, OUTPUT);
+    pinMode(MOTOR_R_PWM, OUTPUT);
+    pinMode(MOTOR_R_IN1, OUTPUT);
+    pinMode(MOTOR_R_IN2, OUTPUT);
 
-  pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
-  pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
-  pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
-  pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
+    pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
 
-  pinMode(ENCODER_L_A, INPUT_PULLUP);
-  pinMode(ENCODER_L_B, INPUT_PULLUP);
-  pinMode(ENCODER_R_A, INPUT_PULLUP);
-  pinMode(ENCODER_R_B, INPUT_PULLUP);
+    pinMode(ENCODER_L_A, INPUT_PULLUP);
+    pinMode(ENCODER_L_B, INPUT_PULLUP);
+    pinMode(ENCODER_R_A, INPUT_PULLUP);
+    pinMode(ENCODER_R_B, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
-  pidLeft.SetMode(AUTOMATIC);
-  pidRight.SetMode(AUTOMATIC);
+    pidLeft.SetMode(AUTOMATIC);
+    pidRight.SetMode(AUTOMATIC);
   pidPosition.SetMode(AUTOMATIC);
   pidOrientation.SetMode(AUTOMATIC);
   pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
@@ -391,7 +394,7 @@ void updateData() {
     
     // Update limit switch states
     updateLimitSwitches();
-    
+
     // Update limit switch positions
     getLimitSwitchPositions();
     
@@ -413,26 +416,6 @@ void updateData() {
     sensorData.imuVelocity = sqrt(imuData.accel[0] * imuData.accel[0] + 
                                  imuData.accel[1] * imuData.accel[1]);
     sensorData.imuPosition = currentPosition.position[0]; // Using x position as example
-
-   // Debug print sensor data
-   // Serial.print("Left Velocity: ");
-   // Serial.print(leftEncoderVelocity);
-   // Serial.print(", Right Velocity: ");
-   // Serial.println(rightEncoderVelocity);
-    
-    // Debug print sensor data
-    // Serial.print("Encoders: L=");
-    // Serial.print(sensorData.leftEncoder);
-    // Serial.print(", R=");
-    // Serial.print(sensorData.rightEncoder);
-    // Serial.print(" | Left Velocity: ");
-    // Serial.print(sensorData.leftEncoderVelocity);
-    // Serial.print(", Right Velocity: ");
-    // Serial.print(sensorData.rightEncoderVelocity);
-    // Serial.print(" | IMU Velocity: ");
-    // Serial.print(sensorData.imuVelocity);
-    // Serial.print(", IMU Position: ");
-    // Serial.println(sensorData.imuPosition);
 }
 
 void performIMUCalibration() {
@@ -440,7 +423,6 @@ void performIMUCalibration() {
     float gyroSum[3] = {0, 0, 0};
     
     // Serial.println("Collecting calibration data...");
-    
     for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
         if (ICM.dataReady()) {
             ICM.getAGMT();
@@ -485,7 +467,7 @@ void performIMUCalibration() {
 
 void getIMUData() {
     if (ICM.dataReady()) {
-        unsigned long currentTime = millis();
+    unsigned long currentTime = millis();
         float deltaTime = (currentTime - lastIMUTime) / 1000.0; // Convert to seconds
         
         ICM.getAGMT();
@@ -541,6 +523,12 @@ void getLimitSwitchPositions() {
 //add aidans encoder velocity processing
 void encoderISR_L() {
     unsigned long currentTime = millis();
+    
+    // Debounce check - ignore readings too close together
+    if (currentTime - lastEncoderTime < ENCODER_DEBOUNCE_TIME) {
+        return;
+    }
+    
     float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
     
     // Calculate the change in encoder count for the left encoder
@@ -587,6 +575,12 @@ void encoderISR_L() {
 
 void encoderISR_R() {
     unsigned long currentTime = millis();
+
+    // Debounce check - ignore readings too close together
+    if (currentTime - lastEncoderTime < ENCODER_DEBOUNCE_TIME) {
+        return;
+    }
+    
     float deltaTime = (currentTime - lastEncoderTime) / 1000.0; // Time in seconds
     
     // Calculate position change
