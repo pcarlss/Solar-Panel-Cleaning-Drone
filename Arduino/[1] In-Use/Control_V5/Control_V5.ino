@@ -340,15 +340,15 @@ void loop() {
     } else ControllerData.throttle = int(hoverThrottleValue);
     ControllerData.yaw = (abs(yawInput) < DEAD_ZONE)
                            ? rampToTarget(ControllerData.yaw, 1500, RAMP_UP_SPEED, RAMP_DOWN_SPEED)
-                           : rampToTarget(ControllerData.yaw, map(yawInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
+                           : rampToTarget(ControllerData.yaw, map(yawInput, -32767, 32767, 1425, 1575), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
 
     ControllerData.pitch = (abs(pitchInput) < DEAD_ZONE)
                              ? rampToTarget(ControllerData.pitch, 1500, RAMP_UP_SPEED, RAMP_DOWN_SPEED)
-                             : rampToTarget(ControllerData.pitch, map(pitchInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
+                             : rampToTarget(ControllerData.pitch, map(pitchInput, -32767, 32767, 1425, 1575), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
 
     ControllerData.roll = (abs(rollInput) < DEAD_ZONE)
                             ? rampToTarget(ControllerData.roll, 1500, RAMP_UP_SPEED, RAMP_DOWN_SPEED)
-                            : rampToTarget(ControllerData.roll, map(rollInput, -32767, 32767, 1000, 2000), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
+                            : rampToTarget(ControllerData.roll, map(rollInput, -32767, 32767, 1425, 1575), RAMP_UP_SPEED, RAMP_DOWN_SPEED);
 
     ControllerData.safety = toggleSafety;
     ControllerData.angle = int(servoAngle);
