@@ -337,10 +337,10 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
-    pidLeft.SetMode(MANUAL);
-    pidRight.SetMode(MANUAL);
-    pidPosition.SetMode(MANUAL);
-    pidOrientation.SetMode(MANUAL);
+    pidLeft.SetMode(AUTOMATIC);
+    pidRight.SetMode(AUTOMATIC);
+    pidPosition.SetMode(AUTOMATIC);
+    pidOrientation.SetMode(AUTOMATIC);
     pidLeft.SetOutputLimits(-TOP_VOLTAGE, TOP_VOLTAGE);
     pidRight.SetOutputLimits(-TOP_VOLTAGE, TOP_VOLTAGE);
     pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
