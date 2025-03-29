@@ -8,16 +8,16 @@
 
 // ==================== Pin Definitions ====================
 // Motor pins
-#define MOTOR_L_PWM 9    // D9 - Left motor PWM
-#define MOTOR_L_IN1 8    // D8 - Left motor direction 1
-#define MOTOR_L_IN2 7    // D7 - Left motor direction 2
-#define MOTOR_R_PWM 10   // D10 - Right motor PWM
-#define MOTOR_R_IN1 11   // D11 - Right motor direction 1
-#define MOTOR_R_IN2 12   // D12 - Right motor direction 2
+#define MOTOR_L_PWM 5    // D5 - Left motor PWM (EN_A)
+#define MOTOR_L_IN1 4    // D4 - Left motor direction 1
+#define MOTOR_L_IN2 A1   // A1 - Left motor direction 2
+#define MOTOR_R_PWM 6    // D6 - Right motor PWM (EN_B)
+#define MOTOR_R_IN1 8    // D8 - Right motor direction 1
+#define MOTOR_R_IN2 7    // D7 - Right motor direction 2
 #define CLEANING_MOTOR_ENABLE 13  // D13 - Cleaning motor enable
 
 // ESP32 Serial Communication
-SoftwareSerial espSerial(8, 255);  // RX = D8, TX unused
+SoftwareSerial espSerial(3, 255);  // RX = D3, TX unused (changed from D8 to avoid conflict)
 int sensorValues[8];  // Store IR sensor readings from ESP32
 
 // Limit switch count
@@ -53,6 +53,7 @@ const int IR_THRESHOLDS[LIMIT_SWITCH_COUNT] = {
 // Physical constants
 const float AXLE_LENGTH = 0.170;  // 170mm
 const float WHEEL_RADIUS = 0.025; // 25mm
+const float TOP_VOLTAGE = 12;     // 12 V
 const float TOP_SPEED = 0.04;     // 4 cm/s
 const float TOP_TURN_RATE = 1.0;  // rad/s
 const float MIN_ANGLE = 0.31415926535;      // Minimum angle change for velocity calculation
@@ -336,10 +337,12 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENCODER_L_A), encoderISR_L, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_R_A), encoderISR_R, CHANGE);
 
-    pidLeft.SetMode(AUTOMATIC);
-    pidRight.SetMode(AUTOMATIC);
-    pidPosition.SetMode(AUTOMATIC);
-    pidOrientation.SetMode(AUTOMATIC);
+    pidLeft.SetMode(MANUAL);
+    pidRight.SetMode(MANUAL);
+    pidPosition.SetMode(MANUAL);
+    pidOrientation.SetMode(MANUAL);
+    pidLeft.SetOutputLimits(-TOP_VOLTAGE, TOP_VOLTAGE);
+    pidRight.SetOutputLimits(-TOP_VOLTAGE, TOP_VOLTAGE);
     pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
     pidOrientation.SetOutputLimits(-TOP_TURN_RATE, TOP_TURN_RATE);
 }
@@ -944,6 +947,12 @@ void followInnerPath() {
 }
 
 void stopMotors() {
+    // Stop both motors by setting all direction pins LOW
+    digitalWrite(MOTOR_L_IN1, LOW);
+    digitalWrite(MOTOR_L_IN2, LOW);
+    digitalWrite(MOTOR_R_IN1, LOW);
+    digitalWrite(MOTOR_R_IN2, LOW);
+    // Set PWM to 0
     analogWrite(MOTOR_L_PWM, 0);
     analogWrite(MOTOR_R_PWM, 0);
     pidLeft.SetMode(MANUAL);
@@ -965,12 +974,22 @@ void updateMotors() {
     pidRight.Compute();
     
     // Combine PID and feed-forward outputs
-    float finalOutputL = pidOutputL + ffL;
-    float finalOutputR = pidOutputR + ffR;
+    float finalOutputL = (pidOutputL + ffL);
+    float finalOutputR = (pidOutputR + ffR);
     
-    // Apply outputs to motors
-    analogWrite(MOTOR_L_PWM, constrain(finalOutputL, 0, 255));
-    analogWrite(MOTOR_R_PWM, constrain(finalOutputR, 0, 255));
+    // Convert to PWM values (0-255)
+    int pwmL = (int)constrain(abs(finalOutputL) * 255 / 12, 0, 255);
+    int pwmR = (int)constrain(abs(finalOutputR) * 255 / 12, 0, 255);
+    
+    // Set direction pins based on sign of output
+    digitalWrite(MOTOR_L_IN1, finalOutputL >= 0 ? HIGH : LOW);
+    digitalWrite(MOTOR_L_IN2, finalOutputL >= 0 ? LOW : HIGH);
+    digitalWrite(MOTOR_R_IN1, finalOutputR >= 0 ? HIGH : LOW);
+    digitalWrite(MOTOR_R_IN2, finalOutputR >= 0 ? LOW : HIGH);
+    
+    // Apply PWM
+    analogWrite(MOTOR_L_PWM, pwmL);
+    analogWrite(MOTOR_R_PWM, pwmR);
 }
 
 void makeDecision() {
