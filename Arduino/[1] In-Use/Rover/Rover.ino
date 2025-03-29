@@ -4,6 +4,7 @@
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <SoftwareSerial.h>
 
 // ==================== Pin Definitions ====================
 // Motor pins
@@ -15,12 +16,24 @@
 #define MOTOR_R_IN2 12   // D12 - Right motor direction 2
 #define CLEANING_MOTOR_ENABLE 13  // D13 - Cleaning motor enable
 
-// Limit switch pins
+// ESP32 Serial Communication
+SoftwareSerial espSerial(8, 255);  // RX = D8, TX unused
+int sensorValues[8];  // Store IR sensor readings from ESP32
+
+// Limit switch count
 #define LIMIT_SWITCH_COUNT 8
-#define LIMIT_SWITCH_PIN_SELECTOR_0 4  // D4 - Multiplexer address bit 0
-#define LIMIT_SWITCH_PIN_SELECTOR_1 5  // D5 - Multiplexer address bit 1
-#define LIMIT_SWITCH_PIN_SELECTOR_2 A2 // A2 - Multiplexer address bit 2
-#define LIMIT_SWITCH_PIN_OUTPUT A3     // A3 - Multiplexer output
+
+// IR threshold values for each limit switch
+const int IR_THRESHOLDS[LIMIT_SWITCH_COUNT] = {
+    1150,  // LFO
+    2200,  // LFI
+    1900,  // RFO
+    1400,  // RFI
+    975,  // LBO
+    1125,  // LBI
+    1000,  // RBO
+    1250   // RBI
+};
 
 // IMU pins
 #define IMU_SDA A4  // A4 - IMU I2C data
@@ -57,6 +70,9 @@ const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
 // Add debounce constant after other constants
 #define ENCODER_DEBOUNCE_TIME 10  // Minimum time between readings in ms
 
+// Add MIN_TIME constant after other constants
+#define MIN_TIME 20  // Define MIN_TIME as needed
+
 // ==================== Type Definitions ====================
 // Enums for state management
 enum DecisionStates { IDLE, SEARCHFORCORNER, BEGINCLEANING, CLEANOUTERLOOP, CLEANINNERLOOPS, DONE };
@@ -83,13 +99,13 @@ struct PositionalInformation {
     float r_speed;        // Right wheel speed
 };
 
-struct LimitSwitchPair {
-    bool innerLimitSwitch;
-    bool outerLimitSwitch;
+struct LimitSwitchConfig {
+    bool isPressed;  // Whether the switch is triggered
+    int rawValue;    // Raw IR sensor reading
 };
 
 struct SensorData {
-    LimitSwitchPair limitSwitches[LIMIT_SWITCH_COUNT];
+    LimitSwitchConfig limitSwitches[LIMIT_SWITCH_COUNT];
     float accelX, accelY, accelZ;
     float gyroX, gyroY, gyroZ;
     long leftEncoder, rightEncoder;
@@ -104,11 +120,6 @@ struct IMUData {
     float accelBias[3];
     float gyroBias[3];
     bool isCalibrated;
-};
-
-struct LimitSwitchConfig {
-    float relativePos[2];  // [x, y] relative to rover center
-    bool isPressed;
 };
 
 struct ControllerData {
@@ -207,14 +218,14 @@ PID pidRight(&pidInputR, &pidOutputR, &pidSetpointR, pidKp, pidKi, pidKd, DIRECT
 
 // Limit switch configurations
 LimitSwitchConfig limitSwitchConfigs[LIMIT_SWITCH_COUNT] = {
-    {{0.1, 0.105}, false},  // LFO
-    {{0.1, 0.1}, false},    // LFI
-    {{0.1, -0.105}, false}, // RFO
-    {{0.1, -0.1}, false},   // RFI
-    {{-0.1, 0.105}, false}, // LBO
-    {{-0.1, 0.1}, false},   // LBI
-    {{-0.1, -0.105}, false},// RBO
-    {{-0.1, -0.1}, false}   // RBI
+    {false, 0},  // LFO
+    {false, 0},    // LFI
+    {false, 0}, // RFO
+    {false, 0},   // RFI
+    {false, 0}, // LBO
+    {false, 0},   // LBI
+    {false, 0},// RBO
+    {false, 0}   // RBI
 };
 
 // Add lockout variable to global variables section
@@ -235,7 +246,6 @@ void setTrajectory(float linearVelocity, float turnRate);
 void getIMUData();
 void performIMUCalibration();
 void updateLimitSwitches();
-void getLimitSwitchPositions();
 
 // Navigation functions
 void searchForCorner();
@@ -275,54 +285,48 @@ float getAvgRightEncoderVelocity();
 
 // ==================== Setup and Main Loop ====================
 void setup() {
-  // Initialize serial communication
+    // Initialize serial communication
     Serial.begin(115200);
-  while (!Serial) {
-     // Wait for serial port to connect
-  }
+    espSerial.begin(9600);  // Initialize communication with ESP32
+    
+    while (!Serial) {
+    }
 
-  // Initialize IMU
+    // Initialize IMU
     Wire.begin();
-  if (!ICM.begin()) {
-    // Serial.println("Failed to initialize IMU!");
-    while (1);
-  }
+    if (!ICM.begin()) {
+        // Serial.println("Failed to initialize IMU!");
+        while (1);
+    }
 
-  // Initialize IMU calibration
-  // Serial.println("IMU Calibration Starting...");
-  // Serial.println("Please keep the IMU stationary during calibration.");
-  performIMUCalibration();
+    // Initialize IMU calibration
+    // Serial.println("IMU Calibration Starting...");
+    // Serial.println("Please keep the IMU stationary during calibration.");
+    performIMUCalibration();
 
-  // Initialize radio
-  if (!radio.begin()) {
-    // Radio hardware not responding
-    while (1); // Stop if radio fails
-  }
-  
-  radio.openReadingPipe(0, address);
-  radio.setAutoAck(false);
-  radio.setDataRate(RF24_1MBPS);
-  radio.setPALevel(RF24_PA_MIN);
-  radio.setPayloadSize(sizeof(ControllerData));
-  radio.setChannel(100);
-  radio.startListening();
-  
-  radioInitialized = true;
-  
-  // Serial.println("Rover Initialized.");
+    // Initialize radio
+    if (!radio.begin()) {
+        // Radio hardware not responding
+        while (1); // Stop if radio fails
+    }
+    
+    radio.openReadingPipe(0, address);
+    radio.setAutoAck(false);
+    radio.setDataRate(RF24_1MBPS);
+    radio.setPALevel(RF24_PA_MIN);
+    radio.setPayloadSize(sizeof(ControllerData));
+    radio.setChannel(100);
+    radio.startListening();
+    
+    radioInitialized = true;
 
-  // Initialize other pins
+    // Initialize other pins
     pinMode(MOTOR_L_PWM, OUTPUT);
     pinMode(MOTOR_L_IN1, OUTPUT);
     pinMode(MOTOR_L_IN2, OUTPUT);
     pinMode(MOTOR_R_PWM, OUTPUT);
     pinMode(MOTOR_R_IN1, OUTPUT);
     pinMode(MOTOR_R_IN2, OUTPUT);
-
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_0, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_1, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_SELECTOR_2, OUTPUT);
-    pinMode(LIMIT_SWITCH_PIN_OUTPUT, INPUT_PULLUP);
 
     pinMode(ENCODER_L_A, INPUT_PULLUP);
     pinMode(ENCODER_L_B, INPUT_PULLUP);
@@ -334,10 +338,10 @@ void setup() {
 
     pidLeft.SetMode(AUTOMATIC);
     pidRight.SetMode(AUTOMATIC);
-  pidPosition.SetMode(AUTOMATIC);
-  pidOrientation.SetMode(AUTOMATIC);
-  pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
-  pidOrientation.SetOutputLimits(-TOP_TURN_RATE, TOP_TURN_RATE);
+    pidPosition.SetMode(AUTOMATIC);
+    pidOrientation.SetMode(AUTOMATIC);
+    pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
+    pidOrientation.SetOutputLimits(-TOP_TURN_RATE, TOP_TURN_RATE);
 }
 
 void loop() {
@@ -403,8 +407,6 @@ void updateData() {
     // Update limit switch states
     updateLimitSwitches();
 
-    // Update limit switch positions
-    getLimitSwitchPositions();
     
     // Update sensor data structure
     sensorData.accelX = imuData.accel[0];
@@ -473,7 +475,7 @@ void performIMUCalibration() {
 
 void getIMUData() {
     if (ICM.dataReady()) {
-    unsigned long currentTime = millis();
+        unsigned long currentTime = millis();
         float deltaTime = (currentTime - lastIMUTime) / 1000.0; // Convert to seconds
         
         ICM.getAGMT();
@@ -488,10 +490,39 @@ void getIMUData() {
         imuData.gyro[1] = ICM.gyrY() - imuData.gyroBias[1];
         imuData.gyro[2] = ICM.gyrZ() - imuData.gyroBias[2];
         
-        // Update orientation using gyroscope data with actual elapsed time
-        imuData.orientation[0] += imuData.gyro[0] * deltaTime;
-        imuData.orientation[1] += imuData.gyro[1] * deltaTime;
-        imuData.orientation[2] += imuData.gyro[2] * deltaTime;
+        // Update estimated position based on IMU data
+        float linear_accel = sqrt(imuData.accel[0] * imuData.accel[0] + 
+                                 imuData.accel[1] * imuData.accel[1]);
+        
+        // Zero-velocity update (ZUPT) when acceleration is low and no movement
+        if (linear_accel <= 0.25 && 
+            abs(estimatedPosition.l_speed) < 0.001 && 
+            abs(estimatedPosition.r_speed) < 0.001) {
+            estimatedPosition.linear_accel = 0;
+            estimatedPosition.linear_velocity = 0;
+        } else {
+            // Update velocity and position based on acceleration
+            estimatedPosition.linear_velocity += linear_accel * deltaTime;
+            estimatedPosition.position[0] += estimatedPosition.orientation[0] * 
+                                           estimatedPosition.linear_velocity * deltaTime;
+            estimatedPosition.position[1] += estimatedPosition.orientation[1] * 
+                                           estimatedPosition.linear_velocity * deltaTime;
+        }
+        
+        // Update orientation using gyroscope data
+        float d_theta = imuData.gyro[2] * deltaTime;  // rotation amount, radians
+        
+        // Update orientation vector
+        float x = estimatedPosition.orientation[0];
+        float y = estimatedPosition.orientation[1];
+        estimatedPosition.orientation[0] = x*cos(d_theta) - y*sin(d_theta);
+        estimatedPosition.orientation[1] = x*sin(d_theta) + y*cos(d_theta);
+        
+        // Update azimuth (yaw)
+        estimatedPosition.azimuth = fmod((estimatedPosition.azimuth + d_theta), (2 * PI));
+        
+        // Update turn rate
+        estimatedPosition.turn_rate = imuData.gyro[2];
         
         lastIMUTime = currentTime;
     }
@@ -499,32 +530,27 @@ void getIMUData() {
 
 // Function to update limit switch states
 void updateLimitSwitches() {
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        // Set multiplexer address
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_0, (i & 0x01) ? HIGH : LOW);
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_1, (i & 0x02) ? HIGH : LOW);
-        digitalWrite(LIMIT_SWITCH_PIN_SELECTOR_2, (i & 0x04) ? HIGH : LOW);
+    if (espSerial.available()) {
+        String line = espSerial.readStringUntil('\n');
         
-        delay(5); // Wait for multiplexer to settle
+        // Parse comma-separated values
+        int index = 0;
+        char *token = strtok((char*)line.c_str(), ",");
         
-        // Read limit switch state
-        limitSwitchConfigs[i].isPressed = (digitalRead(LIMIT_SWITCH_PIN_OUTPUT) == LOW);
+        while (token != NULL && index < 8) {
+            sensorValues[index++] = atoi(token);
+            token = strtok(NULL, ",");
+        }
+        
+        // Map the 8 values to limit switches in correct order
+        for (int i = 0; i < 8; i++) {
+            int irValue = sensorValues[i];
+            limitSwitchConfigs[i].rawValue = irValue;
+            limitSwitchConfigs[i].isPressed = (irValue > IR_THRESHOLDS[i]);  // isPressed true when near edge (high value)
+        }
     }
 }
 
-// Function to get limit switch positions relative to rover center
-void getLimitSwitchPositions() {
-    for (int i = 0; i < LIMIT_SWITCH_COUNT; i++) {
-        float x = currentPosition.position[0] + 
-                 limitSwitchConfigs[i].relativePos[0] * cos(currentPosition.azimuth) -
-                 limitSwitchConfigs[i].relativePos[1] * sin(currentPosition.azimuth);
-                 
-        float y = currentPosition.position[1] + 
-                 limitSwitchConfigs[i].relativePos[0] * sin(currentPosition.azimuth) +
-                 limitSwitchConfigs[i].relativePos[1] * cos(currentPosition.azimuth);
-                 
-    }
-}
 
 //add aidans encoder velocity processing
 void encoderISR_L() {
@@ -817,8 +843,8 @@ void adjustBackAndForth() {
             setTrajectory(-0.02, 0);  // Reverse straight back
         }
         else {
-        stopMotors();
-        searchForCornerState = MOVEBACKWARDSUNTILCORNER;
+            stopMotors();
+            searchForCornerState = MOVEBACKWARDSUNTILCORNER;
         }
     }
 }
