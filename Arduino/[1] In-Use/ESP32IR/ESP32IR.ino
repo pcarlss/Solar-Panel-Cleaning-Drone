@@ -35,5 +35,5 @@ void loop() {
 
   // Send all 8 values as a comma-separated string to Arduino via Serial1
   Serial1.println(data);
-  delay(10);        // Adjust as needed
+  delay(15);        // Adjust as needed
 }
