@@ -1,10 +1,15 @@
 #include <Wire.h>
 #include <PID_v1.h>
-#include <ICM_20948.h>
+#include <MPU6050.h>
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <SoftwareSerial.h>
+
+
+
+//debug
+bool SkipRadio = true;
 
 // ==================== Pin Definitions ====================
 // Motor pins
@@ -17,22 +22,22 @@
 #define CLEANING_MOTOR_ENABLE 13  // D13 - Cleaning motor enable
 
 // ESP32 Serial Communication
-SoftwareSerial espSerial(3, 255);  // RX = D3, TX unused (changed from D8 to avoid conflict)
-int sensorValues[8];  // Store IR sensor readings from ESP32
+SoftwareSerial espSerial(A0, 255);  // RX = A0, TX unused (changed from D8 to avoid conflict)
+bool LFO, RFI, RFO, LBO, LFI, RBO, LBI, RBI;  // Limit switch states
 
 // Limit switch count
 #define LIMIT_SWITCH_COUNT 8
 
 // IR threshold values for each limit switch
 const int IR_THRESHOLDS[LIMIT_SWITCH_COUNT] = {
-    1150,  // LFO
-    2200,  // LFI
-    1900,  // RFO
-    1400,  // RFI
-    975,  // LBO
-    1125,  // LBI
+    1000,  // LFO
+    2100,  // RFI
+    1800,  // RFO
+    1300,  // LBO
+    900,   // LFI
     1000,  // RBO
-    1250   // RBI
+    900,   // LBI
+    900    // RBI
 };
 
 // IMU pins
@@ -64,6 +69,13 @@ const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
 #define CALIBRATION_SAMPLES 250
 #define VALIDATION_SAMPLES 100
 #define STABILITY_THRESHOLD 0.1  // degrees/s for gyro, mg for accel
+#define MPU 0x68  // MPU6050 I2C address
+
+// Add IMU error variables
+float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
+float accAngleX, accAngleY, gyroAngleX, gyroAngleY, gyroAngleZ;
+float roll, pitch, yaw;
+float elapsedTime, currentTime, previousTime;
 
 // Add lockout constant after other constants
 #define LOCKOUT_COUNTDOWN 20  // Matches simulation
@@ -100,13 +112,7 @@ struct PositionalInformation {
     float r_speed;        // Right wheel speed
 };
 
-struct LimitSwitchConfig {
-    bool isPressed;  // Whether the switch is triggered
-    int rawValue;    // Raw IR sensor reading
-};
-
 struct SensorData {
-    LimitSwitchConfig limitSwitches[LIMIT_SWITCH_COUNT];
     float accelX, accelY, accelZ;
     float gyroX, gyroY, gyroZ;
     long leftEncoder, rightEncoder;
@@ -209,25 +215,13 @@ bool signalLost = false;
 ControllerData receivedData;
 
 // Sensor objects and data
-ICM_20948_I2C ICM;
+MPU6050 mpu;
 IMUData imuData;
 SensorData sensorData;
 PositionalInformation currentPosition;
 PositionalInformation estimatedPosition;
 PID pidLeft(&pidInputL, &pidOutputL, &pidSetpointL, pidKp, pidKi, pidKd, DIRECT);
 PID pidRight(&pidInputR, &pidOutputR, &pidSetpointR, pidKp, pidKi, pidKd, DIRECT);
-
-// Limit switch configurations
-LimitSwitchConfig limitSwitchConfigs[LIMIT_SWITCH_COUNT] = {
-    {false, 0},  // LFO
-    {false, 0},    // LFI
-    {false, 0}, // RFO
-    {false, 0},   // RFI
-    {false, 0}, // LBO
-    {false, 0},   // LBI
-    {false, 0},// RBO
-    {false, 0}   // RBI
-};
 
 // Add lockout variable to global variables section
 int lockoutCountdown = 0;
@@ -288,38 +282,64 @@ float getAvgRightEncoderVelocity();
 void setup() {
     // Initialize serial communication
     Serial.begin(115200);
-    espSerial.begin(9600);  // Initialize communication with ESP32
+    espSerial.begin(38400);  // Initialize communication with ESP32
     
     while (!Serial) {
+      Serial.println("no serial");
     }
+
+
+    Serial.println("mpu init");
 
     // Initialize IMU
     Wire.begin();
-    if (!ICM.begin()) {
-        // Serial.println("Failed to initialize IMU!");
-        while (1);
-    }
-
-    // Initialize IMU calibration
-    // Serial.println("IMU Calibration Starting...");
-    // Serial.println("Please keep the IMU stationary during calibration.");
-    performIMUCalibration();
+    
+    // Configure MPU6050
+    Wire.beginTransmission(MPU);
+    Wire.write(0x6B);  // PWR_MGMT_1 register
+    Wire.write(0x00);  // Set to zero to wake up
+    Wire.endTransmission(true);
+    
+    // Configure Accelerometer Sensitivity - Full Scale Range (+/- 8g)
+    Wire.beginTransmission(MPU);
+    Wire.write(0x1C);  // ACCEL_CONFIG register
+    Wire.write(0x10);  // Set to 0x10 for +/- 8g
+    Wire.endTransmission(true);
+    
+    // Configure Gyro Sensitivity - Full Scale Range (1000deg/s)
+    Wire.beginTransmission(MPU);
+    Wire.write(0x1B);  // GYRO_CONFIG register
+    Wire.write(0x10);  // Set to 0x10 for 1000deg/s
+    Wire.endTransmission(true);
+    
+    delay(20);
+    
+    // Calculate IMU error values
+    calculate_IMU_error();
+    delay(20);
 
     // Initialize radio
-    if (!radio.begin()) {
+    if(SkipRadio){
+        Serial.println("skip radio");
+        decisionState = SEARCHFORCORNER;
+    }
+    else if (!radio.begin()) {
         // Radio hardware not responding
         while (1); // Stop if radio fails
+        
+    }else{
+        radio.openReadingPipe(0, address);
+        radio.setAutoAck(false);
+        radio.setDataRate(RF24_1MBPS);
+        radio.setPALevel(RF24_PA_MIN);
+        radio.setPayloadSize(sizeof(ControllerData));
+        radio.setChannel(100);
+        radio.startListening();
+        
+        radioInitialized = true;
     }
     
-    radio.openReadingPipe(0, address);
-    radio.setAutoAck(false);
-    radio.setDataRate(RF24_1MBPS);
-    radio.setPALevel(RF24_PA_MIN);
-    radio.setPayloadSize(sizeof(ControllerData));
-    radio.setChannel(100);
-    radio.startListening();
     
-    radioInitialized = true;
 
     // Initialize other pins
     pinMode(MOTOR_L_PWM, OUTPUT);
@@ -345,11 +365,17 @@ void setup() {
     pidRight.SetOutputLimits(-TOP_VOLTAGE, TOP_VOLTAGE);
     pidPosition.SetOutputLimits(-TOP_SPEED, TOP_SPEED);
     pidOrientation.SetOutputLimits(-TOP_TURN_RATE, TOP_TURN_RATE);
+
+    Serial.println("setup done");
 }
 
 void loop() {
+    Serial.println("loopin?");
     // Check for radio signals
-    if (radio.available()) {
+    if(SkipRadio){
+      //
+    }
+    else if (radio.available()) {
         lastSignalTime = millis();
         signalLost = false;
         radio.read(&receivedData, sizeof(receivedData));
@@ -376,12 +402,12 @@ void loop() {
             }
             // Emergency stop on signal loss
             if (decisionState != IDLE) {
-                decisionState = IDLE;
+                decisionState =  IDLE;
                 stopMotors();
             }
         }
     }
-    
+    Serial.println("loopin?");
     updateData();
     updatePosition();
     makeDecision();
@@ -429,106 +455,136 @@ void updateData() {
     sensorData.imuPosition = currentPosition.position[0]; // Using x position as example
 }
 
-void performIMUCalibration() {
-    float accelSum[3] = {0, 0, 0};
-    float gyroSum[3] = {0, 0, 0};
+void calculate_IMU_error() {
+    Serial.println("calculating mpu error");
+    int c = 0;
     
-    // Serial.println("Collecting calibration data...");
-    for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
-        if (ICM.dataReady()) {
-            ICM.getAGMT();
-            
-            // Accumulate sensor readings
-            accelSum[0] += ICM.accX();
-            accelSum[1] += ICM.accY();
-            accelSum[2] += ICM.accZ() - 1000.0; // Subtract 1g from Z
-            
-            gyroSum[0] += ICM.gyrX();
-            gyroSum[1] += ICM.gyrY();
-            gyroSum[2] += ICM.gyrZ();
-            
-            delay(1000 / SAMPLE_RATE);
-            
-            if (i % 50 == 0) {
-                // Serial.print("Calibration progress: ");
-                // Serial.print(i * 100 / CALIBRATION_SAMPLES);
-                // Serial.println("%");
-            }
-        }
+    // Read accelerometer values 200 times
+    while (c < 200) {
+        Wire.beginTransmission(MPU);
+        Wire.write(0x3B);
+        Wire.endTransmission(false);
+        Wire.requestFrom(MPU, 6, true);
+        float AccX = (Wire.read() << 8 | Wire.read()) / 16384.0;
+        float AccY = (Wire.read() << 8 | Wire.read()) / 16384.0;
+        float AccZ = (Wire.read() << 8 | Wire.read()) / 16384.0;
+        
+        // Sum all readings
+        AccErrorX = AccErrorX + ((atan((AccY) / sqrt(pow((AccX), 2) + pow((AccZ), 2))) * 180 / PI));
+        AccErrorY = AccErrorY + ((atan(-1 * (AccX) / sqrt(pow((AccY), 2) + pow((AccZ), 2))) * 180 / PI));
+        c++;
     }
     
-    // Calculate biases
-    for (int i = 0; i < 3; i++) {
-        imuData.accelBias[i] = accelSum[i] / CALIBRATION_SAMPLES;
-        imuData.gyroBias[i] = gyroSum[i] / CALIBRATION_SAMPLES;
+    //Divide the sum by 200 to get the error value
+    AccErrorX = AccErrorX / 200;
+    AccErrorY = AccErrorY / 200;
+    c = 0;
+    
+    // Read gyro values 200 times
+    while (c < 200) {
+        Wire.beginTransmission(MPU);
+        Wire.write(0x43);
+        Wire.endTransmission(false);
+        Wire.requestFrom(MPU, 6, true);
+        float GyroX = Wire.read() << 8 | Wire.read();
+        float GyroY = Wire.read() << 8 | Wire.read();
+        float GyroZ = Wire.read() << 8 | Wire.read();
+        
+        // Sum all readings
+        GyroErrorX = GyroErrorX + (GyroX / 131.0);
+        GyroErrorY = GyroErrorY + (GyroY / 131.0);
+        GyroErrorZ = GyroErrorZ + (GyroZ / 131.0);
+        c++;
     }
     
-    // Apply calibration
-    ICM.setBiasAccelX((int32_t)(imuData.accelBias[0] * 16384.0f));
-    ICM.setBiasAccelY((int32_t)(imuData.accelBias[1] * 16384.0f));
-    ICM.setBiasAccelZ((int32_t)(imuData.accelBias[2] * 16384.0f));
-    
-    ICM.setBiasGyroX((int32_t)(imuData.gyroBias[0] * 16.4f));
-    ICM.setBiasGyroY((int32_t)(imuData.gyroBias[1] * 16.4f));
-    ICM.setBiasGyroZ((int32_t)(imuData.gyroBias[2] * 16.4f));
-    
-    imuData.isCalibrated = true;
-    // Serial.println("IMU calibration complete.");
+    //Divide the sum by 200 to get the error value
+    GyroErrorX = GyroErrorX / 200;
+    GyroErrorY = GyroErrorY / 200;
+    GyroErrorZ = GyroErrorZ / 200;
 }
 
 void getIMUData() {
-    if (ICM.dataReady()) {
-        unsigned long currentTime = millis();
-        float deltaTime = (currentTime - lastIMUTime) / 1000.0; // Convert to seconds
-        
-        ICM.getAGMT();
-        
-        // Read accelerometer data
-        imuData.accel[0] = ICM.accX() - imuData.accelBias[0];
-        imuData.accel[1] = ICM.accY() - imuData.accelBias[1];
-        imuData.accel[2] = ICM.accZ() - imuData.accelBias[2] - 1000.0; // Subtract 1g from Z
-        
-        // Read gyroscope data
-        imuData.gyro[0] = ICM.gyrX() - imuData.gyroBias[0];
-        imuData.gyro[1] = ICM.gyrY() - imuData.gyroBias[1];
-        imuData.gyro[2] = ICM.gyrZ() - imuData.gyroBias[2];
-        
-        // Update estimated position based on IMU data
-        float linear_accel = sqrt(imuData.accel[0] * imuData.accel[0] + 
-                                 imuData.accel[1] * imuData.accel[1]);
-        
-        // Zero-velocity update (ZUPT) when acceleration is low and no movement
-        if (linear_accel <= 0.25 && 
-            abs(estimatedPosition.l_speed) < 0.001 && 
-            abs(estimatedPosition.r_speed) < 0.001) {
-            estimatedPosition.linear_accel = 0;
-            estimatedPosition.linear_velocity = 0;
-        } else {
-            // Update velocity and position based on acceleration
-            estimatedPosition.linear_velocity += linear_accel * deltaTime;
-            estimatedPosition.position[0] += estimatedPosition.orientation[0] * 
-                                           estimatedPosition.linear_velocity * deltaTime;
-            estimatedPosition.position[1] += estimatedPosition.orientation[1] * 
-                                           estimatedPosition.linear_velocity * deltaTime;
-        }
-        
-        // Update orientation using gyroscope data
-        float d_theta = imuData.gyro[2] * deltaTime;  // rotation amount, radians
-        
-        // Update orientation vector
-        float x = estimatedPosition.orientation[0];
-        float y = estimatedPosition.orientation[1];
-        estimatedPosition.orientation[0] = x*cos(d_theta) - y*sin(d_theta);
-        estimatedPosition.orientation[1] = x*sin(d_theta) + y*cos(d_theta);
-        
-        // Update azimuth (yaw)
-        estimatedPosition.azimuth = fmod((estimatedPosition.azimuth + d_theta), (2 * PI));
-        
-        // Update turn rate
-        estimatedPosition.turn_rate = imuData.gyro[2];
-        
-        lastIMUTime = currentTime;
+    // Read accelerometer data
+    Wire.beginTransmission(MPU);
+    Wire.write(0x3B);  // Start with register 0x3B (ACCEL_XOUT_H)
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 6, true);
+    
+    // Convert raw values to actual acceleration in g
+    imuData.accel[0] = (Wire.read() << 8 | Wire.read()) / 16384.0;  // X-axis
+    imuData.accel[1] = (Wire.read() << 8 | Wire.read()) / 16384.0;  // Y-axis
+    imuData.accel[2] = (Wire.read() << 8 | Wire.read()) / 16384.0;  // Z-axis
+    
+    // Calculate angles from accelerometer
+    accAngleX = (atan(imuData.accel[1] / sqrt(pow(imuData.accel[0], 2) + pow(imuData.accel[2], 2))) * 180 / PI) - AccErrorX;
+    accAngleY = (atan(-1 * imuData.accel[0] / sqrt(pow(imuData.accel[1], 2) + pow(imuData.accel[2], 2))) * 180 / PI) - AccErrorY;
+    
+    // Read gyroscope data
+    previousTime = currentTime;
+    currentTime = millis();
+    elapsedTime = (currentTime - previousTime) / 1000.0;  // Convert to seconds
+    
+    Wire.beginTransmission(MPU);
+    Wire.write(0x43);  // Gyro data first register address
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU, 6, true);
+    
+    // Convert raw values to degrees per second and apply error correction
+    imuData.gyro[0] = (Wire.read() << 8 | Wire.read()) / 131.0 - GyroErrorX;
+    imuData.gyro[1] = (Wire.read() << 8 | Wire.read()) / 131.0 - GyroErrorY;
+    imuData.gyro[2] = (Wire.read() << 8 | Wire.read()) / 131.0 - GyroErrorZ;
+    
+    // Convert gyro to radians/s
+    imuData.gyro[0] *= PI / 180.0;
+    imuData.gyro[1] *= PI / 180.0;
+    imuData.gyro[2] *= PI / 180.0;
+    
+    // Calculate gyro angles
+    gyroAngleX = gyroAngleX + imuData.gyro[0] * elapsedTime;
+    gyroAngleY = gyroAngleY + imuData.gyro[1] * elapsedTime;
+    yaw = yaw + imuData.gyro[2] * elapsedTime;
+    
+    // Complementary filter - combine accelerometer and gyro angle values
+    roll = 0.96 * gyroAngleX + 0.04 * accAngleX;
+    pitch = 0.96 * gyroAngleY + 0.04 * accAngleY;
+    
+    // Update IMU orientation data
+    imuData.orientation[0] = roll * PI / 180.0;  // Convert to radians
+    imuData.orientation[1] = pitch * PI / 180.0;
+    imuData.orientation[2] = yaw;
+    
+    // Update estimated position based on IMU data
+    float linear_accel = sqrt(imuData.accel[0] * imuData.accel[0] + 
+                             imuData.accel[1] * imuData.accel[1]);
+    
+    // Zero-velocity update (ZUPT) when acceleration is low and no movement
+    if (linear_accel <= 0.25 && 
+        abs(estimatedPosition.l_speed) < 0.001 && 
+        abs(estimatedPosition.r_speed) < 0.001) {
+        estimatedPosition.linear_accel = 0;
+        estimatedPosition.linear_velocity = 0;
+    } else {
+        // Update velocity and position based on acceleration
+        estimatedPosition.linear_velocity += linear_accel * elapsedTime;
+        estimatedPosition.position[0] += estimatedPosition.orientation[0] * 
+                                       estimatedPosition.linear_velocity * elapsedTime;
+        estimatedPosition.position[1] += estimatedPosition.orientation[1] * 
+                                       estimatedPosition.linear_velocity * elapsedTime;
     }
+    
+    // Update orientation vector
+    float x = estimatedPosition.orientation[0];
+    float y = estimatedPosition.orientation[1];
+    estimatedPosition.orientation[0] = x*cos(imuData.gyro[2] * elapsedTime) - y*sin(imuData.gyro[2] * elapsedTime);
+    estimatedPosition.orientation[1] = x*sin(imuData.gyro[2] * elapsedTime) + y*cos(imuData.gyro[2] * elapsedTime);
+    
+    // Update azimuth (yaw)
+    estimatedPosition.azimuth = yaw;
+    
+    // Update turn rate
+    estimatedPosition.turn_rate = imuData.gyro[2];
+    
+    lastIMUTime = currentTime;
 }
 
 // Function to update limit switch states
@@ -536,24 +592,17 @@ void updateLimitSwitches() {
     if (espSerial.available()) {
         String line = espSerial.readStringUntil('\n');
         
-        // Parse comma-separated values
-        int index = 0;
-        char *token = strtok((char*)line.c_str(), ",");
-        
-        while (token != NULL && index < 8) {
-            sensorValues[index++] = atoi(token);
-            token = strtok(NULL, ",");
-        }
-        
-        // Map the 8 values to limit switches in correct order
-        for (int i = 0; i < 8; i++) {
-            int irValue = sensorValues[i];
-            limitSwitchConfigs[i].rawValue = irValue;
-            limitSwitchConfigs[i].isPressed = (irValue > IR_THRESHOLDS[i]);  // isPressed true when near edge (high value)
-        }
+        // Convert characters directly to boolean values
+        LFO = (int) line[0] - '0' == 1 ? true : false;  // Convert char to int
+        RFI = (int) line[1] - '0' == 1 ? true : false;
+        RFO = (int) line[2] - '0' == 1 ? true : false;
+        LBO = (int) line[3] - '0' == 1 ? true : false;
+        LFI = (int) line[4] - '0' == 1 ? true : false;
+        RBO = (int) line[5] - '0' == 1 ? true : false;
+        LBI = (int) line[6] - '0' == 1 ? true : false;
+        RBI = (int) line[7] - '0' == 1 ? true : false;
     }
 }
-
 
 //add aidans encoder velocity processing
 void encoderISR_L() {
@@ -751,8 +800,7 @@ void moveBackwardUntilEdge() {
     setTrajectory(-0.05, 0); // Move backward at 5 cm/s
     
     // Check if either back limit switch is pressed
-    if (limitSwitchConfigs[4].isPressed || limitSwitchConfigs[5].isPressed || // LBO or LBI
-        limitSwitchConfigs[6].isPressed || limitSwitchConfigs[7].isPressed) { // RBO or RBI
+    if (LBO || LBI || RBO || RBI) {
         stopMotors();
         searchForCornerState = ALIGNWITHEDGE;
     }
@@ -760,8 +808,8 @@ void moveBackwardUntilEdge() {
 
 void alignWithEdge() {
     // Read back limit switch states
-    bool left_back_off = !limitSwitchConfigs[4].isPressed && !limitSwitchConfigs[5].isPressed;  // LBO and LBI
-    bool right_back_off = !limitSwitchConfigs[6].isPressed && !limitSwitchConfigs[7].isPressed; // RBO and RBI
+    bool left_back_off = !LBO && !LBI;
+    bool right_back_off = !RBO && !RBI;
     
     // If both back limit switches are off, we are aligned
     if (left_back_off && right_back_off) {
@@ -822,27 +870,21 @@ void turnLeft(int deg) {
 }
 
 void adjustBackAndForth() {
-    // Read limit switch states
-    bool rfo = limitSwitchConfigs[2].isPressed;  // RFO
-    bool rfi = limitSwitchConfigs[3].isPressed;  // RFI
-    bool rbo = limitSwitchConfigs[6].isPressed;  // RBO
-    bool rbi = limitSwitchConfigs[7].isPressed;  // RBI
-    
-    if (!rbo && !rbi) {  // Both back switches are off
-        if (!rfo && !rfi) {  // All switches are off
+    if (!RBO && !RBI) {  // Both back switches are off
+        if (!RFO && !RFI) {  // All switches are off
             setTrajectory(0.02, 0.1);  // Forward and CCW
         } else {  // One or both front switches are on
             setTrajectory(0.02, -0.1);  // Forward and CW
         }
     }
-    else if (rbo && rbi) {  // Both back switches are on
+    else if (RBO && RBI) {  // Both back switches are on
         setTrajectory(-0.02, 0.1);  // Backward and CCW
     }
     else {  // One back switch is off and one is on
-        if (rfo && rfi) {  // Both front switches are on
+        if (RFO && RFI) {  // Both front switches are on
             setTrajectory(-0.02, 0);  // Reverse straight back
         }
-        else if (!rfo && !rfi) {  // Neither front switch is on
+        else if (!RFO && !RFI) {  // Neither front switch is on
             setTrajectory(-0.02, 0);  // Reverse straight back
         }
         else {
@@ -856,7 +898,7 @@ void moveBackwardUntilCorner() {
     setTrajectory(-0.05, 0);  // Move backward at 5 cm/s
     
     // Check for corner condition: both left and right back outer switches pressed
-    if (!limitSwitchConfigs[4].isPressed && !limitSwitchConfigs[6].isPressed) {  // LBO and RBO
+    if (!LBO && !RBO) {
         stopMotors();
         searchForCornerState = SEARCHDONE;
     }
@@ -865,14 +907,8 @@ void moveBackwardUntilCorner() {
 void followEdge() {
     float speed = 0.03;  // Move forward slowly
     
-    // Read limit switch states
-    bool rfo = limitSwitchConfigs[2].isPressed;  // RFO
-    bool rfi = limitSwitchConfigs[3].isPressed;  // RFI
-    bool lfo = limitSwitchConfigs[0].isPressed;  // LFO
-    bool lfi = limitSwitchConfigs[1].isPressed;  // LFI
-    
     // If the left front switches went off, we reached a corner
-    if (!lfo || !lfi) {
+    if (!LFO || !LFI) {
         stopMotors();
         
         // Store corner location
@@ -894,11 +930,11 @@ void followEdge() {
     }
     
     // Adjust turn rate based on limit switch readings
-    if (!rfi) {
+    if (!RFI) {
         // Inner limit switch went off, adjust slight CCW
         setTrajectory(speed/2, 0.1);
     }
-    else if (rfo) {
+    else if (RFO) {
         // Outer limit switch went on, adjust slight CW
         setTrajectory(speed/2, -0.1);
     }
@@ -1115,12 +1151,7 @@ void whenDone() {
 
 bool checkLimitSwitches() {
     // Check front limit switches (first 4 switches)
-    bool frontSwitchesOk = limitSwitchConfigs[0].isPressed && // LFO
-                          limitSwitchConfigs[1].isPressed && // LFI
-                          limitSwitchConfigs[2].isPressed && // RFO
-                          limitSwitchConfigs[3].isPressed;   // RFI
-                          
-    return frontSwitchesOk;
+    return LFO && RFI && RFO && LFI;
 }
 
 float getCurrentAzimuth() {
