@@ -28,17 +28,6 @@ bool LFO, RFI, RFO, LBO, LFI, RBO, LBI, RBI;  // Limit switch states
 // Limit switch count
 #define LIMIT_SWITCH_COUNT 8
 
-// IR threshold values for each limit switch
-const int IR_THRESHOLDS[LIMIT_SWITCH_COUNT] = {
-    1000,  // LFO
-    2100,  // RFI
-    1800,  // RFO
-    1300,  // LBO
-    900,   // LFI
-    1000,  // RBO
-    900,   // LBI
-    900    // RBI
-};
 
 // IMU pins
 #define IMU_SDA A4  // A4 - IMU I2C data
@@ -59,7 +48,7 @@ const int IR_THRESHOLDS[LIMIT_SWITCH_COUNT] = {
 const float AXLE_LENGTH = 0.170;  // 170mm
 const float WHEEL_RADIUS = 0.025; // 25mm
 const float TOP_VOLTAGE = 12;     // 12 V
-const float TOP_SPEED = 0.04;     // 4 cm/s
+const float TOP_SPEED = 0.08;     // 8 cm/s
 const float TOP_TURN_RATE = 1.0;  // rad/s
 const float MIN_ANGLE = 0.31415926535;      // Minimum angle change for velocity calculation
 const float ZERO_TIME = 0.5;      // Time in seconds before zeroing velocity
