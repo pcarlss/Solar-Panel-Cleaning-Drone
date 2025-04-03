@@ -5,7 +5,7 @@ SoftwareSerial espSerial(A0, 255);  // RX = A0, TX unused
 
 void setup() {
   Serial.begin(115200);       // Serial monitor on PC
-  espSerial.begin(9600);      // Communication from ESP32
+  espSerial.begin(38400);      // Communication from ESP32
 }
 
 void loop() {
