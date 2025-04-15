@@ -5,6 +5,144 @@
 	(uuid "ec4922b3-6e74-4cf2-8f52-b358e5575bcf")
 	(paper "A4")
 	(lib_symbols
+		(symbol "Converter_DCDC:OKI-78SR-3.3_1.5-W36H-C"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "U"
+				(at -3.81 3.175 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "OKI-78SR-3.3_1.5-W36H-C"
+				(at 0 3.175 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" "Converter_DCDC:Converter_DCDC_Murata_OKI-78SR_Horizontal"
+				(at 1.27 -6.35 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+						(italic yes)
+					)
+					(justify left)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "https://power.murata.com/data/power/oki-78sr.pdf"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "1.5A Step-Down DC/DC-Regulator, 7-36V input, 3.3V fixed Output Voltage, LM78xx replacement, -40°C to +85°C, OKI-78SR_Horizontal"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "dc-dc murata Step-Down DC/DC-Regulator"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "Converter*DCDC*Murata*OKI*78SR*Horizontal*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "OKI-78SR-3.3_1.5-W36H-C_0_1"
+				(rectangle
+					(start -5.08 1.905)
+					(end 5.08 -5.08)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+			)
+			(symbol "OKI-78SR-3.3_1.5-W36H-C_1_1"
+				(pin power_in line
+					(at -7.62 0 0)
+					(length 2.54)
+					(name "IN"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_in line
+					(at 0 -7.62 90)
+					(length 2.54)
+					(name "GND"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin power_out line
+					(at 7.62 0 180)
+					(length 2.54)
+					(name "OUT"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+		)
 		(symbol "Device:Battery"
 			(pin_numbers hide)
 			(pin_names
@@ -224,29 +362,101 @@
 			)
 		)
 	)
-	(wire
-		(pts
-			(xy 87.63 106.68) (xy 132.08 106.68)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "88e93a02-e71f-4d16-a93b-0895c055c6f5")
+	(junction
+		(at 121.92 123.19)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "cb0712eb-753f-471d-9131-eb9e61e28a35")
+	)
+	(junction
+		(at 137.16 133.35)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "cd354c54-c132-466f-ab7e-198669054b74")
 	)
 	(wire
 		(pts
-			(xy 87.63 116.84) (xy 130.81 116.84)
+			(xy 137.16 133.35) (xy 156.21 133.35)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "e3972efa-e26b-42f2-906a-810548150c73")
+		(uuid "1edff05d-3c75-4205-babb-fce8a7af7114")
+	)
+	(wire
+		(pts
+			(xy 144.78 123.19) (xy 157.48 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "47740d13-80d0-49b6-a449-23472c199e85")
+	)
+	(wire
+		(pts
+			(xy 121.92 116.84) (xy 121.92 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4bb39014-7e0c-4212-adbb-3efe2b8e3b79")
+	)
+	(wire
+		(pts
+			(xy 109.22 133.35) (xy 137.16 133.35)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c50b14bc-e1c5-4cc1-b106-9933b8d5dc8e")
+	)
+	(wire
+		(pts
+			(xy 109.22 123.19) (xy 121.92 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c8797132-4cd0-44de-a20b-8809f76d702b")
+	)
+	(wire
+		(pts
+			(xy 121.92 116.84) (xy 157.48 116.84)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "e0d9fe36-3f96-406b-b80b-a5a25fd0f143")
+	)
+	(wire
+		(pts
+			(xy 137.16 130.81) (xy 137.16 133.35)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f3e95477-9934-4089-ae05-8f679bcee41e")
+	)
+	(wire
+		(pts
+			(xy 121.92 123.19) (xy 129.54 123.19)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f4da66d2-0a6e-4b9e-9813-a61a1dcbd143")
 	)
 	(rectangle
-		(start 72.39 96.52)
-		(end 132.08 128.27)
+		(start 97.79 113.03)
+		(end 157.48 144.78)
 		(stroke
 			(width 0)
 			(type default)
@@ -254,23 +464,11 @@
 		(fill
 			(type none)
 		)
-		(uuid 41e22d21-3eb7-4641-aadb-f9083ff7e05d)
-	)
-	(hierarchical_label "Vout (4S - 14V)"
-		(shape output)
-		(at 132.08 106.68 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "5fa534f0-fb6a-4e0e-b6d2-629b1efc0e9a")
+		(uuid 2454f354-ee25-474b-a372-87a052610fa0)
 	)
 	(hierarchical_label "GND"
 		(shape input)
-		(at 130.81 116.84 0)
+		(at 156.21 133.35 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -278,20 +476,44 @@
 			)
 			(justify left)
 		)
-		(uuid "c7c0b456-4dd1-4f7a-8604-5e2aea084985")
+		(uuid "321396e7-6e80-4d8d-a410-748cba164804")
+	)
+	(hierarchical_label "Vout (4S - 14V)"
+		(shape output)
+		(at 157.48 116.84 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "7ac2b562-cf91-451f-b4b2-58402c42f1d1")
+	)
+	(hierarchical_label "Vout (5V)"
+		(shape output)
+		(at 157.48 123.19 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "cfe02baf-ed8b-467e-bc3d-f992f325c0e3")
 	)
 	(symbol
 		(lib_id "Device:Battery")
-		(at 87.63 111.76 0)
+		(at 109.22 128.27 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
-		(uuid "7368b8a7-fabb-44b6-acf0-348e446795e7")
-		(property "Reference" "BT1"
-			(at 91.44 109.9184 0)
+		(uuid "ca9d0723-e934-4afe-83d0-50ea077ed467")
+		(property "Reference" "BT2"
+			(at 113.03 126.4284 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -300,7 +522,7 @@
 			)
 		)
 		(property "Value" "Battery"
-			(at 91.44 112.4584 0)
+			(at 113.03 128.9684 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -309,7 +531,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 87.63 110.236 90)
+			(at 109.22 126.746 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -318,7 +540,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 87.63 110.236 90)
+			(at 109.22 126.746 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -327,7 +549,7 @@
 			)
 		)
 		(property "Description" "Multiple-cell battery"
-			(at 87.63 111.76 0)
+			(at 109.22 128.27 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -336,15 +558,88 @@
 			)
 		)
 		(pin "1"
-			(uuid "6f872763-408e-492a-8dee-c7d9d1567062")
+			(uuid "9ce0bec5-e76b-493e-95ba-557012c503bc")
 		)
 		(pin "2"
-			(uuid "bf528ee1-71b2-480a-bee1-d16a11195de0")
+			(uuid "db510c06-d8ac-4636-9574-f56b03b4a630")
 		)
 		(instances
 			(project "Complete-Rover-Systems"
 				(path "/6fa62cff-8e96-404b-9f84-9cfa132ad8cc/6832115b-c53d-4fc5-8a54-f93fdadad37c"
-					(reference "BT1")
+					(reference "BT2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Converter_DCDC:OKI-78SR-3.3_1.5-W36H-C")
+		(at 137.16 123.19 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d5415906-2050-4db1-972c-e825d93aad3b")
+		(property "Reference" "U13"
+			(at 137.16 116.84 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "Buck"
+			(at 137.16 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Converter_DCDC:Converter_DCDC_Murata_OKI-78SR_Vertical"
+			(at 138.43 129.54 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://power.murata.com/data/power/oki-78sr.pdf"
+			(at 137.16 123.19 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "1.5A Step-Down DC/DC-Regulator, 7-36V input, 3.3V fixed Output Voltage, LM78xx replacement, -40°C to +85°C, OKI-78SR_Horizontal"
+			(at 137.16 123.19 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "5ff1280b-da65-4536-bcf3-ee38f91355ed")
+		)
+		(pin "3"
+			(uuid "a5e6d8b1-5cdb-46aa-acf5-1c4120a34547")
+		)
+		(pin "2"
+			(uuid "5ff397b9-34ee-4146-9136-46a37cda72bf")
+		)
+		(instances
+			(project "Complete-Rover-Systems"
+				(path "/6fa62cff-8e96-404b-9f84-9cfa132ad8cc/6832115b-c53d-4fc5-8a54-f93fdadad37c"
+					(reference "U13")
 					(unit 1)
 				)
 			)
